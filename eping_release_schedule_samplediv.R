@@ -3,6 +3,7 @@ library(ggnewscale)
 library(tidyverse)
 library(magrittr)
 library(MASS)
+library(car)
 file_path = "C:/Users/E-Ping Rau/OneDrive - University of Cambridge/carbon_release_pattern/"
 source(paste0(file_path, "divergence.R"))
 
@@ -16,15 +17,15 @@ site_label = site
 #eval_classes = c(1, 2, 3, 4) #only evaluate classes 1-4
 
 # 1b. Load existing data for sites ----
-site = "WLT_VNCC_KNT" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
+site = "Gola_country" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
 load(file = paste0(file_path, site, ".Rdata"))
 
 # 2. Calculate carbon flux ----
 makeFlux = function(project_series, leakage_series){
-  project_aggr = aggregate(class_co2e ~ treatment + year, subset(project_series, class %in% eval_classes), FUN = sum) 
+  stock_series = aggregate(class_co2e ~ treatment + year, subset(project_series, class %in% eval_classes), FUN = sum)
   flux_series = data.frame(year = years[-1],
-                           treatment_proj = diff(subset(project_aggr, treatment == "treatment")$class_co2e),
-                           control_proj = diff(subset(project_aggr, treatment == "control")$class_co2e)) %>%
+                           treatment_proj = diff(subset(stock_series, treatment == "treatment")$class_co2e),
+                           control_proj = diff(subset(stock_series, treatment == "control")$class_co2e)) %>%
     mutate(additionality = treatment_proj - control_proj)
   if(!is.null(leakage_series)){
     leakage_aggr = aggregate(class_co2e ~ treatment + year, subset(leakage_series, class %in% eval_classes), FUN = sum)
@@ -33,7 +34,8 @@ makeFlux = function(project_series, leakage_series){
              control_leak = diff(subset(leakage_aggr, treatment == "control")$class_co2e)) %>%
       mutate(leakage = treatment_leak - control_leak)
   }
-  return(flux_series)
+  stock_wide = pivot_wider(stock_series, id_cols = year, names_from = "treatment", values_from = "class_co2e")
+  return(list(stock = stock_wide, flux = flux_series))
 }
 
 flux_series_sim = mapply(makeFlux, project_series = agb_series_project_sim, leakage_series = vector("list", length = length(agb_series_project_sim)),
@@ -62,7 +64,8 @@ write.table(flux_series, file = paste0(file_path, site_label, "_flux_series.csv"
 
 #plot carbon flux time series
 proj_dat = subset(summ_data, var %in% c("treatment_proj", "control_proj"))
-lim_to_use = c(floor(min(proj_dat$val) / (10 ^ 5)) * (10 ^ 5), 0)
+#lim_to_use = c(floor(min(proj_dat$val) / (10 ^ 5)) * (10 ^ 5), 0)
+lim_to_use = c(-4e+05, 25000) #for comparison between Gola and KNT
 ggplot(data = proj_dat, aes(col = var)) +
   geom_line(aes(x = years, y = val, lwd = series, alpha = series), show.legend = F) +
   scale_linewidth_manual("", values = c(1, rep(0.5, 20)), labels = c("Mean", "Simulated", rep(NULL, 19))) +
@@ -81,23 +84,142 @@ ggplot(data = proj_dat, aes(col = var)) +
   theme(axis.line = element_line(linewidth = 0.5),
         panel.grid.minor = element_blank(),
         panel.grid.major.x = element_blank(),
-        legend.title = element_text(),
-        axis.title = element_text(size = 16))
-ggsave(paste0(file_path, site_label, "_fig1_time_series.png"), width = 15, height = 15, unit = "cm")
+        legend.position = "none",
+        axis.title = element_text(size = 24),
+        axis.text = element_text(size = 16))
+ggsave(paste0(file_path, site_label, "_fig1_time_series.png"), width = 15, height = 20, unit = "cm")
 
 
-# 3a. Fit C flux to exponential distributions ----
-flux_p_bfr = subset(summ_data, var == "treatment_proj" & years < t0 & val < 0)$val
-fit_p_bfr = MASS::fitdistr(-flux_p_bfr, "exponential")
+# 3. Distribution fitting ----
 
-flux_cf_bfr = subset(summ_data, var == "control_proj" & years < t0 & val < 0)$val
-fit_cf_bfr = MASS::fitdistr(-flux_cf_bfr, "exponential")
+## section into subsets ----
+loss_pb = -subset(summ_data, var == "treatment_proj" & years < t0 & val < 0)$val
+loss_pa = -subset(summ_data, var == "treatment_proj" & years >= t0 & val < 0)$val
+loss_ca = -subset(summ_data, var == "control_proj" & years >= t0 & val < 0)$val
+loss_cb = -subset(summ_data, var == "control_proj" & years < t0 & val < 0)$val
+loss_list = list(pb = loss_pb, pa = loss_pa, cb = loss_cb, ca = loss_ca)
+loss_type = c("Pre-t0 in project", "Post-t0 in project", "Pre-t0 in counterfactual", "Post-t0 in counterfactual")
 
-flux_p_aftr = subset(summ_data, var == "treatment_proj" & years >= t0 & val < 0)$val
-fit_p_aftr = MASS::fitdistr(-flux_p_aftr, "exponential")
+##visualise subsets ----
+loss_df = rbind(data.frame(type = "C_a", val = loss_ca),
+                data.frame(type = "C_b", val = loss_cb),
+                data.frame(type = "P_a", val = loss_pa),
+                data.frame(type = "P_b", val = loss_pb))
 
-flux_cf_aftr = subset(summ_data, var == "control_proj" & years >= t0 & val < 0)$val
-fit_cf_aftr = MASS::fitdistr(-flux_cf_aftr, "exponential")
+ggplot(data = loss_df, aes(val)) +
+  geom_freqpoly(aes(col = type), lwd = 1, position = "dodge", binwidth = 20000, boundary = 0) +
+  scale_color_manual(values = c("red", "pink", "blue", "lightblue"),
+                     labels = c("Post-t0 counterfactual", "Pre-t0 counterfactual",
+                                "Post-t0 project", "Pre-t0 project")) +
+  scale_x_continuous(name = "Annual C loss (Mg CO2e)", limits = c(0, 360000)) +
+  scale_y_continuous(name = "Count") +
+  ggtitle("") +
+  theme_bw() +
+  theme(axis.line = element_line(linewidth = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank(),
+        legend.position = "none",
+        axis.title = element_text(size = 24),
+        axis.text = element_text(size = 18))
+ggsave(paste0(file_path, site_label, "_fig2_distr_emp.png"), width = 15, height = 20, unit = "cm")
+
+##fit subsets to different distribution families ----
+
+fit_exp = lapply(loss_list, function(x) MASS::fitdistr(x, "exponential"))
+#fit_wbl = lapply(loss_list, function(x) MASS::fitdistr(x, "weibull"))
+#fit_gam = lapply(loss_list, function(x) MASS::fitdistr(x, "gamma"))
+fit_lgn = lapply(loss_list, function(x) MASS::fitdistr(x, "lognormal"))
+#gamma: inappropriate scale
+#weibull: NaN in parameter estimation for some (flux_ca), suggesting it is not appropriate either
+
+##generate random numbers ----
+rand_exp = lapply(fit_exp, function(x) rexp(10000, x$estimate))
+rand_lgn = lapply(fit_lgn, function(x) rlnorm(10000, x$estimate[1], x$estimate[2]))
+
+##examine with p-p plots ----
+sizeppqq = 1200
+cdf_emp = lapply(loss_list, ecdf)
+cdf_fit_exp = lapply(rand_exp, ecdf)
+cdf_fit_lgn = lapply(rand_lgn, ecdf)
+
+plotPP = function(func1, func2, dat, title){
+  plot(func1(sort(dat)), func2(sort(dat)), main = title,
+       xlab = "Theoretical quantiles", ylab = "Sample quantiles")
+  lines(c(0, 1), c(0, 1))
+}
+
+png(paste0(file_path, site_label, "_fig2_fit_pp_exp.png"), width = sizeppqq, height = sizeppqq)
+par(mfrow = c(2, 2))
+mapply(plotPP, func1 = cdf_fit_exp, func2 = cdf_emp, dat = loss_list, title = loss_type)
+dev.off()
+
+png(paste0(file_path, site_label, "_fig2_fit_pp_lnorm.png"), width = sizeppqq, height = sizeppqq)
+par(mfrow = c(2, 2))
+mapply(plotPP, func1 = cdf_fit_lgn, func2 = cdf_emp, dat = loss_list, title = loss_type)
+dev.off()
+
+##examine with q-q plots ----
+png(paste0(file_path, site_label, "_fig2_fit_qq_exp.png"), width = sizeppqq, height = sizeppqq)
+par(mfrow = c(2, 2))
+mapply(function(x, y) car::qqPlot(x, distribution = "exp", rate = y$estimate), x = loss_list, y = fit_exp)
+dev.off()
+
+png(paste0(file_path, site_label, "_fig2_fit_qq_lnorm.png"), width = sizeppqq, height = sizeppqq)
+par(mfrow = c(2, 2))
+mapply(function(x, y) car::qqPlot(x, distribution = "lnorm", meanlog = y$estimate[1], sdlog = y$estimate[2]), x = loss_list, y = fit_lgn)
+dev.off()
+
+
+##test goodness-of-fit and divergence ----
+breaks_list = list(pb = c(seq(0, 100000, by = 15000), 10e10),
+                   pa = c(seq(0, 120000, by = 15000), 10e10),
+                   cb = c(seq(0, 80000, by = 15000), 10e10),
+                   ca = c(seq(0, 360000, by = 60000), 10e10))
+
+vec_emp = mapply(function(x, y) hist(x, breaks = y)$count, x = loss_list, y = breaks_list)
+vec_exp = mapply(function(x, y, z) hist(rexp(length(x), y$estimate), breaks = z)$count, x = loss_list, y = fit_exp, z = breaks_list)
+vec_lgn = mapply(function(x, y, z) hist(rlnorm(length(x), y$estimate[1], y$estimate[2]), breaks = z)$count, x = loss_list, y = fit_lgn, z = breaks_list)
+
+chisq_exp = mapply(function(x, y) chisq.test(x, p = y, rescale.p = T), x = vec_emp, y = vec_exp)
+unlist(chisq_exp["p.value", ])
+chisq_lgn = mapply(function(x, y) chisq.test(x, p = y, rescale.p = T), x = vec_emp, y = vec_lgn)
+unlist(chisq_lgn["p.value", ])
+#significantly different from both exponential or lognormal
+
+##test JS divergence ----
+JSCalc = function(a, b){
+  bin_vec = seq(0, ceiling(max(a, b) / 10 ^ 4) * 10 ^ 4, by = 10000)
+  js = compute_js_divergence(a, b, bins = bin_vec)
+  return(js)
+}
+
+JS_exp = mapply(function(x, y) JSCalc(x, rexp(length(x), y$estimate)), x = loss_list, y = fit_exp)
+#[1] 0.016914936 0.018392344 0.008019489 0.114439386
+JS_lgn = mapply(function(x, y) JSCalc(x, rlnorm(length(x), y$estimate[1], y$estimate[2])), x = loss_list, y = fit_lgn)
+#1] 0.010455531 0.028230478 0.003223241 0.097510087
+
+##visualise fitted distributions ----
+loss_fit_df = rbind(data.frame(type = "C_a", val = rand_exp$ca),
+                 data.frame(type = "C_b", val = rand_exp$cb),
+                 data.frame(type = "P_a", val = rand_exp$pa),
+                 data.frame(type = "P_b", val = rand_exp$pb))
+
+ggplot(data = loss_fit_df, aes(val)) +
+  geom_freqpoly(aes(col = type), lwd = 1, position = "dodge", binwidth = 20000, boundary = 0) +
+  scale_color_manual(values = c("red", "pink", "blue", "lightblue"),
+                     labels = c("Post-t0 counterfactual", "Pre-t0 counterfactual",
+                                "Post-t0 project", "Pre-t0 project")) +
+  scale_x_continuous(name = "Annual C loss (Mg CO2e)", limits = c(0, 1600000)) +
+  scale_y_continuous(name = "Count") +
+  ggtitle("") +
+  theme_bw() +
+  theme(axis.line = element_line(linewidth = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank(),
+        legend.position = "none",
+        axis.title = element_text(size = 24),
+        axis.text = element_text(size = 18))
+ggsave(paste0(file_path, site_label, "_fig2_distr_fit.png"), width = 15, height = 20, unit = "cm")
 
 
 # 3b. Calculate and test JS divergence ----
@@ -119,7 +241,7 @@ JSTest = function(a, b, alpha = 0.05, n_rep = 10000){
   }
   js_crit = quantile(js_perm, 1 - alpha)
   p_val = length(which(js_perm > js)) / n_rep
-  if(p_val == 0) {p_val = paste0("< ", 1 / n_rep)}
+  if(p_val == 0) {p_val = paste("<", 1 / n_rep)}
   return(list(bin_val = bin_vec, js_obs = js, js_crit = js_crit, p_val = p_val))
 }
 
@@ -133,17 +255,18 @@ a1 - a0
 
 
 #visualise distributions
-ymax = ifelse(site_label %in% c("Gola_country", "WLT_VNCC_KNT"), 4e-05, 2e-05)
-png(paste0(file_path, site_label, "_fig2_distr_comparison.png"), width = 600, height = 800)
-plot(0:1e-05, 0:1e-05, xlim = c(0, 150000), ylim = c(0, ymax), type = "n",
-     xlab = "Annual C loss (Mg CO2e)", ylab = "Prob. density", cex.axis = 2.5, cex.lab = 2.5)
-lines(density(rexp_p_bfr), col = "lightblue", lwd = 3)
-lines(density(rexp_cf_bfr), col = "pink", lwd = 3)
-lines(density(rexp_p_aftr), col = "blue", lwd = 3)
-lines(density(rexp_cf_aftr), col = "red", lwd = 3)
-#legend(x = "topright", legend = c("Project (before t0)", "Counterfactual (before t0)", "Project (after t0)", "Counterfactual (after t0)"),
-#       fill = c("lightblue", "pink", "blue", "red"))
-dev.off()
+# ymax = ifelse(site_label %in% c("Gola_country", "WLT_VNCC_KNT"), 4e-05, 2e-05)
+# png(paste0(file_path, site_label, "_fig2_distr_comparison.png"), width = 600, height = 800)
+# plot(0:1e-05, 0:1e-05, xlim = c(0, 150000), ylim = c(0, ymax), type = "n",
+#      xlab = "Annual C loss (Mg CO2e)", ylab = "Prob. density", cex.axis = 2.5, cex.lab = 2.5)
+# lines(density(rexp_p_bfr), col = "lightblue", lwd = 3)
+# lines(density(rexp_cf_bfr), col = "pink", lwd = 3)
+# lines(density(rexp_p_aftr), col = "blue", lwd = 3)
+# lines(density(rexp_cf_aftr), col = "red", lwd = 3)
+# #legend(x = "topright", legend = c("Project (before t0)", "Counterfactual (before t0)", "Project (after t0)", "Counterfactual (after t0)"),
+# #       fill = c("lightblue", "pink", "blue", "red"))
+# dev.off()
+
 
 
 # 3c. Test time-invariance of distributions using 10-year intervals ----
