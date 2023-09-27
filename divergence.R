@@ -3,29 +3,12 @@
 
 library(stats)
 
-compute_probs <- function(data, n) {
-  h <- hist(data, breaks = n, plot = FALSE)
-  p <- h$counts / length(data)
-  e <- h$breaks
-  return(list(e = e, p = p))
-}
-
-support_intersection <- function(p, q) {
-  sup_int <- Filter(function(x) x[[1]] != 0 & x[[2]] != 0, Map(c, p, q))
-  #Map(c, p, q): iteratively take each element in p and in q and apply the c() function to create a list of vectors of pairs of probability values
-  #Filter(....., Map(c, p, q)), apply the function to each vector, the functioning being a test to see if both values in the vector are non-zero;
-  #only keep the vector if it is true
-  return(sup_int)
-}
-
-get_probs <- function(list_of_tuples) {
-  p <- sapply(list_of_tuples, "[[", 1)
-  q <- sapply(list_of_tuples, "[[", 2)
-  return(list(p = p, q = q))
-}
-
 kl_divergence <- function(p, q) {
-  return(sum(p * log(p / q)))
+  probs_df = data.frame(p = p, q = q, intersect = ifelse(p * q == 0, F, T))
+  p_intersect = subset(probs_df, intersect)$p
+  q_intersect = subset(probs_df, intersect)$q
+  
+  return(sum(p_intersect * log(p_intersect / q_intersect)))
 }
 
 js_divergence <- function(p, q) {
@@ -33,28 +16,32 @@ js_divergence <- function(p, q) {
   return((1/2) * kl_divergence(p, m) + (1/2) * kl_divergence(q, m))
 }
 
-compute_kl_divergence <- function(train_sample, test_sample, n_bins = 15) {
-  probs_train <- compute_probs(train_sample, n = n_bins)
-  probs_test <- compute_probs(test_sample, n = probs_train$e)
+compute_kl_divergence <- function(a, b, n_bins = 15) {
+  probs_a <- hist(a, breaks = bins, plot = FALSE)$counts / length(a)
+  probs_b <- hist(b, breaks = bins, plot = FALSE)$counts / length(b)
   
-  p <- probs_train$p
-  q <- probs_test$p
-  
-  list_of_tuples <- support_intersection(p, q)
-  probs <- get_probs(list_of_tuples)
-  
-  return(kl_divergence(probs$p, probs$q))
+  return(kl_divergence(probs_a, probs_b))
 }
 
-compute_js_divergence <- function(train_sample, test_sample, bins) {
-  probs_train <- compute_probs(train_sample, n = bins)
-  probs_test <- compute_probs(test_sample, n = bins)
+compute_js_divergence <- function(a, b, bins) {
+  probs_a <- hist(a, breaks = bins, plot = FALSE)$counts / length(a)
+  probs_b <- hist(b, breaks = bins, plot = FALSE)$counts / length(b)
   
-  p <- probs_train$p
-  q <- probs_test$p
-  
-  list_of_tuples <- support_intersection(p, q) #remove intervals where both p and q are zero
-  probs <- get_probs(list_of_tuples) #get the new p and q
-  
-  return(js_divergence(probs$p, probs$q))
+  return(js_divergence(probs_a, probs_b))
+}
+
+JSTest = function(a, b, bins, alpha = 0.05, nperm = 10000){
+  js_obs = compute_js_divergence(a, b, bins = bins)
+  pooled = c(a, b)
+  js_perm = rep(NA, nperm)
+  for(i in 1:nperm){
+    samp_ind = sample(1:(length(a) + length(b)), length(a))
+    samp_a = pooled[samp_ind]
+    samp_b = pooled[-samp_ind]
+    js_perm[i] = compute_js_divergence(samp_a, samp_b, bins = bins)
+  }
+  js_crit = quantile(js_perm, 1 - alpha)
+  p_val = length(which(js_perm > js_obs)) / nperm
+  if(p_val == 0) {p_val = paste("<", 1 / nperm)}
+  return(list(js_obs = js_obs, js_crit = js_crit, p_val = p_val))
 }
