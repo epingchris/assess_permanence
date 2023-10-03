@@ -133,16 +133,18 @@ PlotTimeSeries(dat = subset(summ_flux, var %in% c("treatment_proj", "control_pro
 # 3. Describe empirical distributions ----
 
 #absolute carbon loss
-absloss_p = -subset(summ_flux, var == "treatment_proj" & year >= t0 & val < 0 & series != "mean")$val
-absloss_c = -subset(summ_flux, var == "control_proj" & year >= t0 & val < 0 & series != "mean")$val
+absloss_p = subset(summ_flux, var == "treatment_proj" & year >= t0 & series != "mean") %>%
+  mutate(val = val * (-1), var = NULL)
+absloss_c = subset(summ_flux, var == "control_proj" & year >= t0 & series != "mean") %>%
+  mutate(val = val * (-1), var = NULL)
 
 ## Epsilon (probability of carbon loss) ----
-length(absloss_p) / nrow(subset(summ_flux, var == "treatment_proj" & year >= t0 & series != "mean"))
-length(absloss_c) / nrow(subset(summ_flux, var == "control_proj" & year >= t0 & series != "mean"))
+nrow(subset(absloss_p, val > 0)) / nrow(absloss_p)
+nrow(subset(absloss_c, val > 0)) / nrow(absloss_c)
 
 ## Median ----
-median(absloss_p)
-median(absloss_c)
+median(absloss_p$val)
+median(absloss_c$val)
 
 ## Divergence ----
 
@@ -152,91 +154,107 @@ median(absloss_c)
 #How about PSI (population stability index)? Seems similar to JS divergence
 #https://arize.com/blog-course/population-stability-index-psi/
 
-bin_digit = floor(log10(max(absloss_p, absloss_c) / 12))
-break_max = ceiling(max(absloss_p, absloss_c) / (10 ^ bin_digit)) * (10 ^ bin_digit)
+bin_digit = floor(log10(max(absloss_p$val, absloss_c$val) / 12))
+break_max = ceiling(max(absloss_p$val, absloss_c$val) / (10 ^ bin_digit)) * (10 ^ bin_digit)
 
-JSTest(absloss_p, absloss_c, bins = seq(0, break_max, len = 13))
+JSTest(subset(absloss_p, val > 0)$val, subset(absloss_p, val > 0)$val, bins = seq(0, break_max, len = 13))
 
-#KS distance and bootstrap KS test
-#https://www.r-bloggers.com/2020/02/monitoring-for-changes-in-distribution-with-resampling-tests/
-ks_res = ks.boot(absloss_p, absloss_c, nboots = 10000)
-ks_res$ks$statistic
-#KS statistic isn't a metric in the formal sense: better not report this
-#https://arize.com/blog-course/kolmogorov-smirnov-test/
 
-## Test for stationarity: KS distance of moving-window subsamples ----
-absloss_p_long = subset(summ_flux, var == "treatment_proj" & year >= t0 & series != "mean")
-absloss_c_long = subset(summ_flux, var == "control_proj" & year >= t0 & series != "mean")
+## Detrend with linear model ----
+absloss_p_lm = lm(val ~ year, data = absloss_p)
+absloss_c_lm = lm(val ~ year, data = absloss_c)
 
-lme_p = lmer(val ~ 1 + (1|year), data = absloss_p_long)
-plot(lme_p, resid(., scaled = T) ~ fitted(.) | year, abline = 0) #standardized residuals versus fitted values by year
-plot(lme_p, year ~ resid(., scaled = T)) #box-plots of residuals by year
-plot(lme_p, sqrt(abs(resid(.))) ~ fitted(.),
-     type = c("p", "smooth"),
-     par.settings = list(plot.line = list(alpha = 1, col = "red",
-                                          lty = 1, lwd = 2))) #scale-location plot
+summary(absloss_p_lm)
+summary(absloss_c_lm)
 
-year_vec = t0:2021
-ks_vec = rep(NA, length(year_vec))
-pval_vec = rep(NA, length(year_vec))
-for(i in 1:length(year_vec)){
-  ks_res = ks.boot(absloss_p_long$val, subset(absloss_p_long, year == year_vec[i])$val, nboots = 10000)
-  ks_vec[i] = ks_res$ks$statistic
-  pval_vec[i] = ks_res$ks.boot.pvalue
-}
-par(mar = c(5, 4, 4, 5) + 0.1)
-plot(1:length(year_vec), ks_vec, ylim = c(0, 1), xlab = "Year", type = "l", xaxt = "n")
-axis(1, at = 1:length(year_vec), labels = year_vec)
-axis(4, at = seq(0, 1, by = 0.2))
-mtext("p value", side = 4, line = 3)
-lines(1:length(year_vec), pval_vec, ylim = c(0, 1), col = "red")
-abline(h = 0.05, col = "red", lty = 2)
+absloss_p %<>%
+  mutate(resid = absloss_p_lm$residuals)
 
-## Test for stationarity ----
+absloss_c %<>%
+  mutate(resid = absloss_c_lm$residuals)
+
+# ### 1. KS test between adjacent subsets of moving windows
+# year_vec = t0:2021
+# wdth = 5
+# ks_vec = rep(NA, length(year_vec) - wdth)
+# pval_vec = rep(NA, length(year_vec) - wdth)
+# for(i in 1:(length(year_vec) - wdth)){
+#   ks_res = ks.boot(subset(absloss_p_long, year %in% year_vec[i:(i + wdth - 1)])$val,
+#                    subset(absloss_p_long, year %in% year_vec[(i + 1):(i + wdth)])$val, nboots = 10000)
+#   ks_vec[i] = ks_res$ks$statistic
+#   pval_vec[i] = ks_res$ks.boot.pvalue
+# }
+# par(mar = c(5, 4, 4, 5) + 0.1)
+# plot(1:(length(year_vec) - wdth), ks_vec, ylim = c(0, 1), xlab = "Year interval pair", ylab = "KS test statistics",
+#      type = "l", xaxt = "n")
+# axis(1, at = 1:(length(year_vec) - wdth),
+#      labels = paste0(year_vec[1:(length(year_vec) - wdth)], " - ", year_vec[wdth:(length(year_vec) - 1)], " vs. \n",
+#                      year_vec[2:(length(year_vec) - wdth + 1)], " - ", year_vec[(wdth + 1):length(year_vec)]),
+#      padj = 0.5)
+# axis(4, at = seq(0, 1, by = 0.2), col = "red", col.ticks = "red", col.axis = "red")
+# mtext("p value", side = 4, line = 3, col = "red")
+# lines(1:(length(year_vec) - wdth), pval_vec, ylim = c(0, 1), col = "red")
+# abline(h = 0.05, col = "red", lty = 2)
+
+## Test for stationarity with original values ----
 #trend-stationary: https://en.wikipedia.org/wiki/Trend-stationary_process
 #https://www.r-econometrics.com/timeseries/stationarity/
 #https://uk.mathworks.com/help/econ/trend-stationary-vs-difference-stationary.html
 #https://python.plainenglish.io/time-series-analysis-mastering-the-concepts-of-stationarity-c9fc489893cf
 
-absloss_p_tseries = subset(summ_flux, var == "treatment_proj" & year >= t0 & series != "mean") %>%
-  pivot_wider(names_from = "series", values_from = "val") %>%
-  mutate(year = NULL, var = NULL)
-absloss_c_tseries = subset(summ_flux, var == "control_proj" & year >= t0 & series != "mean") %>%
-  pivot_wider(names_from = "series", values_from = "val") %>%
-  mutate(year = NULL, var = NULL)
+absloss_p_val = pivot_wider(mutate(absloss_p, resid = NULL), names_from = "series", values_from = "val") %>%
+  mutate(year = NULL)
+absloss_p_val_adf = sapply(absloss_p_val, function(x) tseries::adf.test(x)$p.value)
+length(which(absloss_p_val_adf >= 0.05)) / 20
+absloss_p_val_kpss_level = sapply(absloss_p_val, function(x) tseries::kpss.test(x, null = "Level")$p.value)
+length(which(absloss_p_val_kpss_level < 0.05)) / 20
+absloss_p_val_kpss_trend = sapply(absloss_p_val, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
+length(which(absloss_p_val_kpss_trend < 0.05)) / 20
 
-absloss_p_tseries_adf = sapply(absloss_p_tseries, function(x) tseries::adf.test(x)$p.value)
-absloss_c_tseries_adf = sapply(absloss_c_tseries, function(x) tseries::adf.test(x)$p.value)
-length(which(absloss_p_tseries_adf >= 0.05)) / 20
-length(which(absloss_c_tseries_adf >= 0.05)) / 20
+absloss_c_val = pivot_wider(mutate(absloss_c, resid = NULL), names_from = "series", values_from = "val") %>%
+  mutate(year = NULL)
+absloss_c_val_adf = sapply(absloss_c_val, function(x) tseries::adf.test(x)$p.value)
+length(which(absloss_c_val_adf >= 0.05)) / 20
+absloss_c_val_kpss_level = sapply(absloss_c_val, function(x) tseries::kpss.test(x, null = "Level")$p.value)
+length(which(absloss_c_val_kpss_level < 0.05)) / 20
+absloss_c_val_kpss_trend = sapply(absloss_c_val, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
+length(which(absloss_c_val_kpss_trend < 0.05)) / 20
 
-absloss_p_tseries_kpss_level = sapply(absloss_p_tseries, function(x) tseries::kpss.test(ts(x), null = "Level")$p.value)
-absloss_c_tseries_kpss_level = sapply(absloss_c_tseries, function(x) tseries::kpss.test(x, null = "Level")$p.value)
-absloss_p_tseries_kpss_trend = sapply(absloss_p_tseries, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
-absloss_c_tseries_kpss_trend = sapply(absloss_c_tseries, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
-length(which(absloss_p_tseries_kpss_level < 0.05)) / 20
-length(which(absloss_c_tseries_kpss_level < 0.05)) / 20
-length(which(absloss_p_tseries_kpss_trend < 0.05)) / 20
-length(which(absloss_c_tseries_kpss_trend < 0.05)) / 20
+## Test for stationarity with LM residuals ----
+absloss_p_resid = pivot_wider(mutate(absloss_p, val = NULL), names_from = "series", values_from = "resid") %>%
+  mutate(year = NULL)
+absloss_p_resid_adf = sapply(absloss_p_resid, function(x) tseries::adf.test(x)$p.value)
+length(which(absloss_p_resid_adf >= 0.05)) / 20
+absloss_p_resid_kpss_level = sapply(absloss_p_resid, function(x) tseries::kpss.test(x, null = "Level")$p.value)
+length(which(absloss_p_resid_kpss_level < 0.05)) / 20
+absloss_p_resid_kpss_trend = sapply(absloss_p_resid, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
+length(which(absloss_p_resid_kpss_trend < 0.05)) / 20
 
-library(Rbeast)
-out = beast(absloss_p_tseries$V1, season='none')
-plot(out)
+absloss_c_resid = pivot_wider(mutate(absloss_c, val = NULL), names_from = "series", values_from = "resid") %>%
+  mutate(year = NULL)
+absloss_c_resid_adf = sapply(absloss_c_resid, function(x) tseries::adf.test(x)$p.value)
+length(which(absloss_c_resid_adf >= 0.05)) / 20
+absloss_c_resid_kpss_level = sapply(absloss_c_resid, function(x) tseries::kpss.test(x, null = "Level")$p.value)
+length(which(absloss_c_resid_kpss_level < 0.05)) / 20
+absloss_c_resid_kpss_trend = sapply(absloss_c_resid, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
+length(which(absloss_c_resid_kpss_trend < 0.05)) / 20
 
-library(gam)
-absloss_p_df = subset(summ_flux, var == "treatment_proj" & year >= t0 & series != "mean") %>%
-  mutate(series = as.factor(series))
+## Boxplots to visualise outliers ----
 
-gam_out = gam(val ~ s(year) + series, data = absloss_p_df)
 par(mfrow = c(1, 2))
-plot(gam_out, se = T)
-summary(gam_out)
+boxplot(absloss_p$val, main = "Project")
+boxplot(absloss_c$val, main = "Counterfactual")
+par(mfrow = c(1, 1))
 
-ggplot(data = subset(summ_flux, var == "treatment_proj" & year >= t0 & series != "mean")) +
-  geom_line(aes(x = year, y = val, group = series))
+## forecast::tsoutliers ----
 
+absloss_p_val_outl = lapply(absloss_p_val, function(x) forecast::tsoutliers(x))
+absloss_c_val_outl = lapply(absloss_c_val, function(x) forecast::tsoutliers(x))
+table(unlist(sapply(absloss_p_val_outl, function(x) x$index)))
+table(unlist(sapply(absloss_c_val_outl, function(x) x$index)))
 
-
+unique(absloss_p$year)
+unique(absloss_c$year)
 
 # 4. Fit distributions
 # relloss_list = list(Project = relloss_p, Counterfactual = relloss_c)
@@ -357,7 +375,9 @@ ggplot(data = subset(summ_flux, var == "treatment_proj" & year >= t0 & series !=
 
 
 # 4. Fit and plot C loss distributions ----
-absloss_list = list(P = absloss_p, C = absloss_c)
+
+## Single parametric distributions: exponential, Gaussian
+absloss_list = list(P = absloss_p$val, C = absloss_c$val)
 absloss_df = rbind(data.frame(type = "P", val = absloss_p),
                    data.frame(type = "C", val = absloss_c))
 
@@ -367,39 +387,67 @@ samp_absloss_c_exp = rexp(10000, absloss_fit_exp$C$estimate)
 samp_absloss_df_exp = rbind(data.frame(type = "C", val = samp_absloss_c_exp),
                             data.frame(type = "P", val = samp_absloss_p_exp))
 
+gof_exp_p = EnvStats::gofTest(absloss_p, samp_absloss_p_exp)
+gof_exp_c = EnvStats::gofTest(absloss_c, samp_absloss_c_exp)
+paste0(signif(gof_exp_p$statistic, 2),
+       " (", ifelse(signif(gof_exp_p$p.value, 2) < 0.001, "< 0.001", signif(gof_exp_p$p.value, 2)), ")")
+paste0(signif(gof_exp_c$statistic, 2),
+       " (", ifelse(signif(gof_exp_c$p.value, 2) < 0.001, "< 0.001", signif(gof_exp_c$p.value, 2)), ")")
+
+
 absloss_fit_nor = lapply(absloss_list, function(x) MASS::fitdistr(x, "normal"))
 samp_absloss_p_nor = rnorm(10000, absloss_fit_nor$P$estimate[1], absloss_fit_nor$P$estimate[2])
 samp_absloss_c_nor = rnorm(10000, absloss_fit_nor$C$estimate[1], absloss_fit_nor$C$estimate[2])
+samp_absloss_p_nor = samp_absloss_p_nor[which(samp_absloss_p_nor > 0)]
+samp_absloss_c_nor = samp_absloss_c_nor[which(samp_absloss_c_nor > 0)]
 samp_absloss_df_nor = rbind(data.frame(type = "C", val = samp_absloss_c_nor),
                             data.frame(type = "P", val = samp_absloss_p_nor))
 
+gof_nor_p = EnvStats::gofTest(absloss_p, samp_absloss_p_nor)
+gof_nor_c = EnvStats::gofTest(absloss_c, samp_absloss_c_nor)
+paste0(signif(gof_nor_p$statistic, 2),
+       " (", ifelse(signif(gof_nor_p$p.value, 2) < 0.001, "< 0.001", signif(gof_nor_p$p.value, 2)), ")")
+paste0(signif(gof_nor_c$statistic, 2),
+       " (", ifelse(signif(gof_nor_c$p.value, 2) < 0.001, "< 0.001", signif(gof_nor_c$p.value, 2)), ")")
 
+## Gaussian mixture models
 absloss_fit_gmm = lapply(absloss_list, function(x) mclust::Mclust(x, 2))
-
-lapply(absloss_fit_gmm, function(x) x$parameters$pro)
 
 par(mfrow = c(2, 1))
 lapply(absloss_fit_gmm, function(x) plot(x, what = "classification", main = "Mclust Classification"))
 par(mfrow = c(1, 1))
 
-samp_absloss_p_1 = rnorm(10000 * absloss_fit_gmm$P$parameters$pro[1], mean = absloss_fit_gmm$P$parameters$mean[1], sd = sqrt(absloss_fit_gmm$P$parameters$variance$sigmasq[1]))
-samp_absloss_p_2 = rnorm(10000 * absloss_fit_gmm$P$parameters$pro[2], mean = absloss_fit_gmm$P$parameters$mean[2], sd = sqrt(absloss_fit_gmm$P$parameters$variance$sigmasq[2]))
-samp_absloss_c_1 = rnorm(10000 * absloss_fit_gmm$C$parameters$pro[1], mean = absloss_fit_gmm$C$parameters$mean[1], sd = sqrt(absloss_fit_gmm$C$parameters$variance$sigmasq[1]))
-samp_absloss_c_2 = rnorm(10000 * absloss_fit_gmm$C$parameters$pro[2], mean = absloss_fit_gmm$C$parameters$mean[2], sd = sqrt(absloss_fit_gmm$C$parameters$variance$sigmasq[2]))
-samp_absloss_p_1 = samp_absloss_p_1[samp_absloss_p_1 >= 0]
-samp_absloss_p_2 = samp_absloss_p_2[samp_absloss_p_2 >= 0]
-samp_absloss_p_gmm = c(samp_absloss_p_1, samp_absloss_p_2)
-samp_absloss_c_1 = samp_absloss_c_1[samp_absloss_c_1 >= 0]
-samp_absloss_c_2 = samp_absloss_c_2[samp_absloss_c_2 >= 0]
-samp_absloss_c_gmm = c(samp_absloss_c_1, samp_absloss_c_2)
+SampByPro = function(params){
+  vec1 = NULL
+  while(length(vec1) < round(10000 * params$pro[1])) {
+    val = rnorm(1, mean = params$mean[1], sd = sqrt(params$variance$sigmasq[1]))
+    if(val > 0) vec1 = c(vec1, val)
+  }
+  vec2 = NULL
+  while(length(vec2) < 10000 - round(10000 * params$pro[1])) {
+    val = rnorm(1, mean = params$mean[2], sd = sqrt(params$variance$sigmasq[2]))
+    if(val > 0) vec2 = c(vec2, val)
+  }
+  return(list(vec1 = vec1, vec2 = vec2))
+}
 
+samp_absloss_p = SampByPro(absloss_fit_gmm$P$parameters)
+samp_absloss_c = SampByPro(absloss_fit_gmm$C$parameters)
 
-gof_p = EnvStats::gofTest(absloss_p, samp_absloss_p_gmm)
-gof_c = EnvStats::gofTest(absloss_c, samp_absloss_c_gmm)
-signif(gof_p$statistic, 2)
-signif(gof_p$p.value, 2)
-signif(gof_c$statistic, 2)
-signif(gof_c$p.value, 2)
+gof_gmm_p = EnvStats::gofTest(absloss_p, unlist(samp_absloss_p))
+gof_gmm_c = EnvStats::gofTest(absloss_c, unlist(samp_absloss_c))
+paste0(signif(gof_gmm_p$statistic, 2),
+       " (", ifelse(signif(gof_gmm_p$p.value, 2) < 0.001, "< 0.001", signif(gof_gmm_p$p.value, 2)), ")")
+paste0(signif(gof_gmm_c$statistic, 2),
+       " (", ifelse(signif(gof_gmm_c$p.value, 2) < 0.001, "< 0.001", signif(gof_gmm_c$p.value, 2)), ")")
+
+round(absloss_fit_gmm$P$parameters$mean, 1)
+round(sqrt(absloss_fit_gmm$P$parameters$variance$sigmasq), 1)
+round(absloss_fit_gmm$P$parameters$pro[1], 2)
+
+round(absloss_fit_gmm$C$parameters$mean, 1)
+round(sqrt(absloss_fit_gmm$C$parameters$variance$sigmasq), 1)
+round(absloss_fit_gmm$C$parameters$pro[1], 2)
 
 nbins = 20
 
