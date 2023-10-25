@@ -1,3 +1,4 @@
+rm(list = ls())
 library(ggplot2)
 library(ggnewscale)
 library(tidyverse)
@@ -14,10 +15,10 @@ source("/Users/E-Ping Rau/OneDrive - University of Cambridge/carbon_release_patt
 # 1. Initiatlise ----
 
 ## 1a. Generate data for new sites ----
-rmarkdown::render("/Users/E-Ping Rau/OneDrive - University of Cambridge/4C_evaluations/R/Reports/eval_template/evaluation_epingrau.Rmd", clean = FALSE)
+#rmarkdown::render("/Users/E-Ping Rau/OneDrive - University of Cambridge/4C_evaluations/R/Reports/eval_template/evaluation_epingrau.Rmd", clean = FALSE)
 #eval_classes = c(1, 2, 3, 4) #only evaluate classes 1-4
 ## 1b. Load existing data for sites ----
-site = "Gola_country" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
+site = "VCS_934" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
 load(file = paste0(file_path, site, ".Rdata"))
 
 # 2. Calculate carbon stock and flux ----
@@ -138,9 +139,19 @@ absloss_p = subset(summ_flux, var == "treatment_proj" & year >= t0 & series != "
 absloss_c = subset(summ_flux, var == "control_proj" & year >= t0 & series != "mean") %>%
   mutate(val = val * (-1), var = NULL)
 
+absloss_p_bfr = subset(summ_flux, var == "treatment_proj" & year < t0 & series != "mean") %>%
+  mutate(val = val * (-1), var = NULL)
+absloss_c_bfr = subset(summ_flux, var == "control_proj" & year < t0 & series != "mean") %>%
+  mutate(val = val * (-1), var = NULL)
+
+
 ## Epsilon (probability of carbon loss) ----
 nrow(subset(absloss_p, val > 0)) / nrow(absloss_p)
 nrow(subset(absloss_c, val > 0)) / nrow(absloss_c)
+
+nrow(subset(absloss_p_bfr, val > 0)) / nrow(absloss_p_bfr)
+nrow(subset(absloss_c_bfr, val > 0)) / nrow(absloss_c_bfr)
+
 
 ## Median ----
 median(absloss_p$val)
@@ -159,19 +170,20 @@ break_max = ceiling(max(absloss_p$val, absloss_c$val) / (10 ^ bin_digit)) * (10 
 
 JSTest(subset(absloss_p, val > 0)$val, subset(absloss_p, val > 0)$val, bins = seq(0, break_max, len = 13))
 
+#3a. Foray into time series analysis ----
 
-## Detrend with linear model ----
-absloss_p_lm = lm(val ~ year, data = absloss_p)
-absloss_c_lm = lm(val ~ year, data = absloss_c)
-
-summary(absloss_p_lm)
-summary(absloss_c_lm)
-
-absloss_p %<>%
-  mutate(resid = absloss_p_lm$residuals)
-
-absloss_c %<>%
-  mutate(resid = absloss_c_lm$residuals)
+# ## Detrend with linear model ----
+# absloss_p_lm = lm(val ~ year, data = absloss_p)
+# absloss_c_lm = lm(val ~ year, data = absloss_c)
+# 
+# summary(absloss_p_lm)
+# summary(absloss_c_lm)
+# 
+# absloss_p %<>%
+#   mutate(resid = absloss_p_lm$residuals)
+# 
+# absloss_c %<>%
+#   mutate(resid = absloss_c_lm$residuals)
 
 # ### 1. KS test between adjacent subsets of moving windows
 # year_vec = t0:2021
@@ -202,209 +214,92 @@ absloss_c %<>%
 #https://uk.mathworks.com/help/econ/trend-stationary-vs-difference-stationary.html
 #https://python.plainenglish.io/time-series-analysis-mastering-the-concepts-of-stationarity-c9fc489893cf
 
-absloss_p_val = pivot_wider(mutate(absloss_p, resid = NULL), names_from = "series", values_from = "val") %>%
-  mutate(year = NULL)
-absloss_p_val_adf = sapply(absloss_p_val, function(x) tseries::adf.test(x)$p.value)
-length(which(absloss_p_val_adf >= 0.05)) / 20
-absloss_p_val_kpss_level = sapply(absloss_p_val, function(x) tseries::kpss.test(x, null = "Level")$p.value)
-length(which(absloss_p_val_kpss_level < 0.05)) / 20
-absloss_p_val_kpss_trend = sapply(absloss_p_val, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
-length(which(absloss_p_val_kpss_trend < 0.05)) / 20
-
-absloss_c_val = pivot_wider(mutate(absloss_c, resid = NULL), names_from = "series", values_from = "val") %>%
-  mutate(year = NULL)
-absloss_c_val_adf = sapply(absloss_c_val, function(x) tseries::adf.test(x)$p.value)
-length(which(absloss_c_val_adf >= 0.05)) / 20
-absloss_c_val_kpss_level = sapply(absloss_c_val, function(x) tseries::kpss.test(x, null = "Level")$p.value)
-length(which(absloss_c_val_kpss_level < 0.05)) / 20
-absloss_c_val_kpss_trend = sapply(absloss_c_val, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
-length(which(absloss_c_val_kpss_trend < 0.05)) / 20
-
-## Test for stationarity with LM residuals ----
-absloss_p_resid = pivot_wider(mutate(absloss_p, val = NULL), names_from = "series", values_from = "resid") %>%
-  mutate(year = NULL)
-absloss_p_resid_adf = sapply(absloss_p_resid, function(x) tseries::adf.test(x)$p.value)
-length(which(absloss_p_resid_adf >= 0.05)) / 20
-absloss_p_resid_kpss_level = sapply(absloss_p_resid, function(x) tseries::kpss.test(x, null = "Level")$p.value)
-length(which(absloss_p_resid_kpss_level < 0.05)) / 20
-absloss_p_resid_kpss_trend = sapply(absloss_p_resid, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
-length(which(absloss_p_resid_kpss_trend < 0.05)) / 20
-
-absloss_c_resid = pivot_wider(mutate(absloss_c, val = NULL), names_from = "series", values_from = "resid") %>%
-  mutate(year = NULL)
-absloss_c_resid_adf = sapply(absloss_c_resid, function(x) tseries::adf.test(x)$p.value)
-length(which(absloss_c_resid_adf >= 0.05)) / 20
-absloss_c_resid_kpss_level = sapply(absloss_c_resid, function(x) tseries::kpss.test(x, null = "Level")$p.value)
-length(which(absloss_c_resid_kpss_level < 0.05)) / 20
-absloss_c_resid_kpss_trend = sapply(absloss_c_resid, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
-length(which(absloss_c_resid_kpss_trend < 0.05)) / 20
-
-## Boxplots to visualise outliers ----
-
-par(mfrow = c(1, 2))
-boxplot(absloss_p$val, main = "Project")
-boxplot(absloss_c$val, main = "Counterfactual")
-par(mfrow = c(1, 1))
-
-## forecast::tsoutliers ----
-
-absloss_p_val_outl = lapply(absloss_p_val, function(x) forecast::tsoutliers(x))
-absloss_c_val_outl = lapply(absloss_c_val, function(x) forecast::tsoutliers(x))
-table(unlist(sapply(absloss_p_val_outl, function(x) x$index)))
-table(unlist(sapply(absloss_c_val_outl, function(x) x$index)))
-
-unique(absloss_p$year)
-unique(absloss_c$year)
-
-# 4. Fit distributions
-# relloss_list = list(Project = relloss_p, Counterfactual = relloss_c)
-# relloss_fit = list(exp = lapply(relloss_list, function(x) fitdistrplus::fitdist(x, "exp")),
-#                    weibull = lapply(relloss_list, function(x) fitdistrplus::fitdist(x, "weibull", lower = c(0, 0))),
-#                    gamma = lapply(relloss_list, function(x) fitdistrplus::fitdist(x, "gamma")),
-#                    lnorm = lapply(relloss_list, function(x) fitdistrplus::fitdist(x, "lnorm")),
-#                    beta = lapply(relloss_list, function(x) fitdistrplus::fitdist(x, "beta")),
-#                    norm = lapply(relloss_list, function(x) MASS::fitdistr(x, "normal")))
-
-#additionality_fit_nor = MASS::fitdistr(additionality_series, "normal")
-
-##generate random numbers ----
-# relloss_rand_exp = lapply(relloss_fit_exp, function(x) rexp(10000, x$estimate))
-# relloss_rand_nor = lapply(relloss_fit_nor, function(x) rnorm(10000, x$estimate[1], x$estimate[2]))
-# relloss_rand_nor = lapply(relloss_rand_nor, function(x) x[which(x > 0)])
+# absloss_p_val = pivot_wider(mutate(absloss_p, resid = NULL), names_from = "series", values_from = "val") %>%
+#   mutate(year = NULL)
+# absloss_p_val_adf = sapply(absloss_p_val, function(x) tseries::adf.test(x)$p.value)
+# length(which(absloss_p_val_adf >= 0.05)) / 20
+# absloss_p_val_kpss_level = sapply(absloss_p_val, function(x) tseries::kpss.test(x, null = "Level")$p.value)
+# length(which(absloss_p_val_kpss_level < 0.05)) / 20
+# absloss_p_val_kpss_trend = sapply(absloss_p_val, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
+# length(which(absloss_p_val_kpss_trend < 0.05)) / 20
 # 
-# absloss_rand_nor = lapply(absloss_fit_nor, function(x) rnorm(10000, x$estimate[1], x$estimate[2]))
-# absloss_rand_nor = lapply(absloss_rand_nor, function(x) x[which(x > 0)])
-# #exponential, gamma and lognormal results in values larger than 1
-# #normal distribution needs to be truncated at zero
+# absloss_c_val = pivot_wider(mutate(absloss_c, resid = NULL), names_from = "series", values_from = "val") %>%
+#   mutate(year = NULL)
+# absloss_c_val_adf = sapply(absloss_c_val, function(x) tseries::adf.test(x)$p.value)
+# length(which(absloss_c_val_adf >= 0.05)) / 20
+# absloss_c_val_kpss_level = sapply(absloss_c_val, function(x) tseries::kpss.test(x, null = "Level")$p.value)
+# length(which(absloss_c_val_kpss_level < 0.05)) / 20
+# absloss_c_val_kpss_trend = sapply(absloss_c_val, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
+# length(which(absloss_c_val_kpss_trend < 0.05)) / 20
 # 
-# additionality_rand_nor = rnorm(10000, additionality_fit_nor$estimate[1], additionality_fit_nor$estimate[2])
-# additionality_rand_nor = additionality_rand_nor[which(additionality_rand_nor > 0)]
+# ## Test for stationarity with LM residuals ----
+# absloss_p_resid = pivot_wider(mutate(absloss_p, val = NULL), names_from = "series", values_from = "resid") %>%
+#   mutate(year = NULL)
+# absloss_p_resid_adf = sapply(absloss_p_resid, function(x) tseries::adf.test(x)$p.value)
+# length(which(absloss_p_resid_adf >= 0.05)) / 20
+# absloss_p_resid_kpss_level = sapply(absloss_p_resid, function(x) tseries::kpss.test(x, null = "Level")$p.value)
+# length(which(absloss_p_resid_kpss_level < 0.05)) / 20
+# absloss_p_resid_kpss_trend = sapply(absloss_p_resid, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
+# length(which(absloss_p_resid_kpss_trend < 0.05)) / 20
 # 
-#
-##examine with p-p plots ----
-# relloss_cdf_emp = lapply(relloss_list, ecdf)
-# relloss_cdf_fit_exp = lapply(relloss_rand_exp, ecdf)
-# relloss_cdf_fit_nor = lapply(relloss_rand_nor, ecdf)
+# absloss_c_resid = pivot_wider(mutate(absloss_c, val = NULL), names_from = "series", values_from = "resid") %>%
+#   mutate(year = NULL)
+# absloss_c_resid_adf = sapply(absloss_c_resid, function(x) tseries::adf.test(x)$p.value)
+# length(which(absloss_c_resid_adf >= 0.05)) / 20
+# absloss_c_resid_kpss_level = sapply(absloss_c_resid, function(x) tseries::kpss.test(x, null = "Level")$p.value)
+# length(which(absloss_c_resid_kpss_level < 0.05)) / 20
+# absloss_c_resid_kpss_trend = sapply(absloss_c_resid, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
+# length(which(absloss_c_resid_kpss_trend < 0.05)) / 20
 # 
-# absloss_cdf_emp = lapply(absloss_list, ecdf)
-# absloss_cdf_fit_nor = lapply(absloss_rand_nor, ecdf)
+# ## Boxplots to visualise outliers ----
 # 
-# additionality_cdf_emp = ecdf(additionality_series)
-# additionality_cdf_fit_nor = ecdf(additionality_rand_nor)
+# par(mfrow = c(1, 2))
+# boxplot(absloss_p$val, main = "Project")
+# boxplot(absloss_c$val, main = "Counterfactual")
+# par(mfrow = c(1, 1))
 # 
+# ## forecast::tsoutliers ----
 # 
-# plotPP = function(func1, func2, dat, title, wd = 1200, ht = 600, filename){
-#   png(paste0(file_path, site, filename), width = wd, height = ht)
-#   par(mfrow = c(1, 2), mar = c(6, 6, 6, 2) + 0.1)
-#   mapply(function(func1, func2, dat, title) {
-#     plot(func1(sort(dat)), func2(sort(dat)),
-#          main = title, xlab = "Theoretical cumulative probabilities", ylab = "Sample cumulative probabilities",
-#          cex.main = 3, cex.lab = 2.5, cex.axis = 2)
-#     lines(c(0, 1), c(0, 1))},
-#     func1 = func1, func2 = func2, dat = dat, title = title)
-#   dev.off()
-# }
-#
-# plotPP(func1 = relloss_cdf_fit_exp, func2 = relloss_cdf_emp, dat = relloss_list,
-#        title = relloss_type, filename = "_relloss_fig3a_fit_pp_exp.png")
+# absloss_p_val_outl = lapply(absloss_p_val, function(x) forecast::tsoutliers(x))
+# absloss_c_val_outl = lapply(absloss_c_val, function(x) forecast::tsoutliers(x))
+# table(unlist(sapply(absloss_p_val_outl, function(x) x$index)))
+# table(unlist(sapply(absloss_c_val_outl, function(x) x$index)))
 # 
-# plotPP(func1 = absloss_cdf_fit_nor, func2 = absloss_cdf_emp, dat = absloss_list,
-#        title = absloss_type, filename = "_absloss_fig3f_fit_pp_norm.png")
-# 
-# 
-# png(paste0(file_path, site, "_additionality_pp_norm.png"), width = 600, height = 600)
-# par(mar = c(6, 6, 6, 2) + 0.1)
-# plot(additionality_cdf_fit_nor(sort(additionality_series)), additionality_cdf_emp(sort(additionality_series)),
-#      main = "Additionality", xlab = "Theoretical cumulative probabilities", ylab = "Sample cumulative probabilities",
-#      cex.main = 3, cex.lab = 2.5, cex.axis = 2)
-# lines(c(0, 1), c(0, 1))
-# dev.off()
-# 
-# ##examine with q-q plots ----
-# plotQQ = function(x, y, distr, title, wd = 1200, ht = 600, filename){
-#   png(paste0(file_path, site, filename), width = wd, height = ht)
-#   par(mfrow = c(1, 2), mar = c(6, 6, 6, 2) + 0.1, cex.main = 2.5, cex.lab = 2.25, cex.axis = 2)
-#   mapply(function(x, y, distr, title) {
-#     params = as.list(y$estimate)
-#     do.call(car::qqPlot,
-#             c(list(x, distribution = distr, main = title,
-#                    xlab = "Theoretical quantiles", ylab = "Sample quantiles"), params))},
-#     x = x, y = y, distr = distr, title = title)
-#   dev.off()
-# }
-
-# plotQQ(x = relloss_list, y = relloss_fit_exp, distr = "exp",
-#        title = relloss_type, filename = "_relloss_fig4a_fit_qq_exp.png")
-#
-# plotQQ(x = absloss_list, y = absloss_fit_nor, distr = "norm",
-#        title = absloss_type, filename = "_absloss_fig4f_fit_qq_norm.png")
-# 
-# 
-# png(paste0(file_path, site, "_additionality_fit_qq_norm.png"), width = 600, height = 600)
-# par(mfrow = c(1, 2), mar = c(6, 6, 6, 2) + 0.1, cex.main = 2.5, cex.lab = 2.25, cex.axis = 2)
-# car::qqPlot(additionality_series, distribution = "norm", mean = additionality_fit_nor$estimate[1], sd = additionality_fit_nor$estimate[2],
-#             main = "Additionality", xlab = "Theoretical quantiles", ylab = "Sample quantiles")
-# dev.off()
-# 
-# 
-# ##test goodness-of-fit ----
-# ChisqGof = function(dat, fit, distr){
-#   a = mapply(function(x, y, distr) {
-#     EnvStats::gofTest(x, test = "chisq", distribution = distr, param.list = as.list(y$estimate))
-#   },
-#   x = dat, y = fit, distr = distr, SIMPLIFY = F)
-#   return(a)
-# }
-# 
-# gammaScale = function(x){
-#   a = list(estimate = c(as.list(x$estimate), scale = 1 / as.list(x$estimate)$rate))
-#   a$estimate["rate"] = NULL
-#   return(a)
-# }
-# 
-# absloss_chisq_nor = ChisqGof(dat = absloss_list, fit = absloss_fit_nor, distr = "norm")
-# 
-# sapply(absloss_chisq_nor, function(x) list(stat = x$statistic, pv = x$p.value))
-# 
-# additionality_chisq_nor = EnvStats::gofTest(additionality_series, test = "chisq", distribution = "norm", param.list = as.list(additionality_fit_nor$estimate))
-# (list(stat = additionality_chisq_nor$statistic, pv = additionality_chisq_nor$p.value))
-# 
-# #weibull and beta are good for project area in Gola, none of them are good for the rest
-# relloss_pa_wbl = fitdistrplus::fitdist(relloss_pa * 100, "weibull")
-# relloss_pa_bet = fitdistrplus::fitdist(relloss_pa * 100, "beta")
+# unique(absloss_p$year)
+# unique(absloss_c$year)
 
 
 # 4. Fit and plot C loss distributions ----
+absloss_list = list(P = subset(absloss_p, val > 0)$val, C = subset(absloss_c, val > 0)$val)
+absloss_list_bfr = list(P = subset(absloss_p_bfr, val > 0)$val, C = subset(absloss_c_bfr, val > 0)$val)
 
 ## Single parametric distributions: exponential, Gaussian
-absloss_list = list(P = absloss_p$val, C = absloss_c$val)
-absloss_df = rbind(data.frame(type = "P", val = absloss_p),
-                   data.frame(type = "C", val = absloss_c))
-
 absloss_fit_exp = lapply(absloss_list, function(x) MASS::fitdistr(x, "exponential"))
-samp_absloss_p_exp = rexp(10000, absloss_fit_exp$P$estimate)
-samp_absloss_c_exp = rexp(10000, absloss_fit_exp$C$estimate)
+absloss_fit_nor = lapply(absloss_list, function(x) MASS::fitdistr(x, "normal"))
+
+#generate sampled values from fitted distributions
+samp_absloss_p_exp = rexp(length(absloss_list$P), absloss_fit_exp$P$estimate)
+samp_absloss_c_exp = rexp(length(absloss_list$C), absloss_fit_exp$C$estimate)
 samp_absloss_df_exp = rbind(data.frame(type = "C", val = samp_absloss_c_exp),
                             data.frame(type = "P", val = samp_absloss_p_exp))
 
-gof_exp_p = EnvStats::gofTest(absloss_p, samp_absloss_p_exp)
-gof_exp_c = EnvStats::gofTest(absloss_c, samp_absloss_c_exp)
-paste0(signif(gof_exp_p$statistic, 2),
-       " (", ifelse(signif(gof_exp_p$p.value, 2) < 0.001, "< 0.001", signif(gof_exp_p$p.value, 2)), ")")
-paste0(signif(gof_exp_c$statistic, 2),
-       " (", ifelse(signif(gof_exp_c$p.value, 2) < 0.001, "< 0.001", signif(gof_exp_c$p.value, 2)), ")")
-
-
-absloss_fit_nor = lapply(absloss_list, function(x) MASS::fitdistr(x, "normal"))
-samp_absloss_p_nor = rnorm(10000, absloss_fit_nor$P$estimate[1], absloss_fit_nor$P$estimate[2])
-samp_absloss_c_nor = rnorm(10000, absloss_fit_nor$C$estimate[1], absloss_fit_nor$C$estimate[2])
+samp_absloss_p_nor = rnorm(length(absloss_list$P), absloss_fit_nor$P$estimate[1], absloss_fit_nor$P$estimate[2])
+samp_absloss_c_nor = rnorm(length(absloss_list$C), absloss_fit_nor$C$estimate[1], absloss_fit_nor$C$estimate[2])
 samp_absloss_p_nor = samp_absloss_p_nor[which(samp_absloss_p_nor > 0)]
 samp_absloss_c_nor = samp_absloss_c_nor[which(samp_absloss_c_nor > 0)]
 samp_absloss_df_nor = rbind(data.frame(type = "C", val = samp_absloss_c_nor),
                             data.frame(type = "P", val = samp_absloss_p_nor))
 
-gof_nor_p = EnvStats::gofTest(absloss_p, samp_absloss_p_nor)
-gof_nor_c = EnvStats::gofTest(absloss_c, samp_absloss_c_nor)
+#test goodness of fit
+gof_exp_p = EnvStats::gofTest(absloss_list$P, samp_absloss_p_exp)
+gof_exp_c = EnvStats::gofTest(absloss_list$C, samp_absloss_c_exp)
+paste0(signif(gof_exp_p$statistic, 2),
+       " (", ifelse(signif(gof_exp_p$p.value, 2) < 0.001, "< 0.001", signif(gof_exp_p$p.value, 2)), ")")
+paste0(signif(gof_exp_c$statistic, 2),
+       " (", ifelse(signif(gof_exp_c$p.value, 2) < 0.001, "< 0.001", signif(gof_exp_c$p.value, 2)), ")")
+
+gof_nor_p = EnvStats::gofTest(absloss_list$P, samp_absloss_p_nor)
+gof_nor_c = EnvStats::gofTest(absloss_list$C, samp_absloss_c_nor)
 paste0(signif(gof_nor_p$statistic, 2),
        " (", ifelse(signif(gof_nor_p$p.value, 2) < 0.001, "< 0.001", signif(gof_nor_p$p.value, 2)), ")")
 paste0(signif(gof_nor_c$statistic, 2),
@@ -412,42 +307,69 @@ paste0(signif(gof_nor_c$statistic, 2),
 
 ## Gaussian mixture models
 absloss_fit_gmm = lapply(absloss_list, function(x) mclust::Mclust(x, 2))
+absloss_fit_gmm_bfr = lapply(absloss_list_bfr, function(x) mclust::Mclust(x, 2))
 
 par(mfrow = c(2, 1))
 lapply(absloss_fit_gmm, function(x) plot(x, what = "classification", main = "Mclust Classification"))
+lapply(absloss_fit_gmm_bfr, function(x) plot(x, what = "classification", main = "Mclust Classification"))
 par(mfrow = c(1, 1))
 
-SampByPro = function(params){
-  vec1 = NULL
-  while(length(vec1) < round(10000 * params$pro[1])) {
-    val = rnorm(1, mean = params$mean[1], sd = sqrt(params$variance$sigmasq[1]))
-    if(val > 0) vec1 = c(vec1, val)
+#generate sampled values from fitted distributions
+SampByPro = function(params, n){
+  if(length(params$variance$sigmasq) == 1) params$variance$sigmasq[2] = params$variance$sigmasq[1]
+  samp_vec = NULL
+  while(length(samp_vec) < n) {
+    distr_chosen = ifelse(runif(1) <= params$pro[1], 1, 2)
+    val = rnorm(1, mean = params$mean[distr_chosen], sd = sqrt(params$variance$sigmasq[distr_chosen]))
+    if(val > 0) samp_vec = c(samp_vec, val)
   }
-  vec2 = NULL
-  while(length(vec2) < 10000 - round(10000 * params$pro[1])) {
-    val = rnorm(1, mean = params$mean[2], sd = sqrt(params$variance$sigmasq[2]))
-    if(val > 0) vec2 = c(vec2, val)
-  }
-  return(list(vec1 = vec1, vec2 = vec2))
+  return(samp_vec)
 }
 
-samp_absloss_p = SampByPro(absloss_fit_gmm$P$parameters)
-samp_absloss_c = SampByPro(absloss_fit_gmm$C$parameters)
+samp_absloss_p_gmm = SampByPro(absloss_fit_gmm$P$parameters, n = max(sapply(absloss_list, length)))
+samp_absloss_c_gmm = SampByPro(absloss_fit_gmm$C$parameters, n = max(sapply(absloss_list, length)))
+samp_absloss_p_bfr_gmm = SampByPro(absloss_fit_gmm_bfr$P$parameters, n = max(sapply(absloss_list_bfr, length)))
+samp_absloss_c_bfr_gmm = SampByPro(absloss_fit_gmm_bfr$C$parameters, n = max(sapply(absloss_list_bfr, length)))
 
-gof_gmm_p = EnvStats::gofTest(absloss_p, unlist(samp_absloss_p))
-gof_gmm_c = EnvStats::gofTest(absloss_c, unlist(samp_absloss_c))
+#test goodness of fit
+gof_gmm_p = EnvStats::gofTest(absloss_list$P, samp_absloss_p_gmm)
+gof_gmm_c = EnvStats::gofTest(absloss_list$C, samp_absloss_c_gmm)
 paste0(signif(gof_gmm_p$statistic, 2),
        " (", ifelse(signif(gof_gmm_p$p.value, 2) < 0.001, "< 0.001", signif(gof_gmm_p$p.value, 2)), ")")
 paste0(signif(gof_gmm_c$statistic, 2),
        " (", ifelse(signif(gof_gmm_c$p.value, 2) < 0.001, "< 0.001", signif(gof_gmm_c$p.value, 2)), ")")
 
+gof_gmm_p_bfr = EnvStats::gofTest(absloss_list_bfr$P, samp_absloss_p_bfr_gmm)
+gof_gmm_c_bfr = EnvStats::gofTest(absloss_list_bfr$C, samp_absloss_c_bfr_gmm)
+paste0(signif(gof_gmm_p_bfr$statistic, 2),
+       " (", ifelse(signif(gof_gmm_p_bfr$p.value, 2) < 0.001, "< 0.001", signif(gof_gmm_p_bfr$p.value, 2)), ")")
+paste0(signif(gof_gmm_c_bfr$statistic, 2),
+       " (", ifelse(signif(gof_gmm_c_bfr$p.value, 2) < 0.001, "< 0.001", signif(gof_gmm_c_bfr$p.value, 2)), ")")
+
+
+#visualize mixing proportions
 round(absloss_fit_gmm$P$parameters$mean, 1)
 round(sqrt(absloss_fit_gmm$P$parameters$variance$sigmasq), 1)
-round(absloss_fit_gmm$P$parameters$pro[1], 2)
+round(absloss_fit_gmm$P$parameters$pro, 2)
 
 round(absloss_fit_gmm$C$parameters$mean, 1)
 round(sqrt(absloss_fit_gmm$C$parameters$variance$sigmasq), 1)
-round(absloss_fit_gmm$C$parameters$pro[1], 2)
+round(absloss_fit_gmm$C$parameters$pro, 2)
+
+round(absloss_fit_gmm_bfr$P$parameters$mean, 1)
+round(sqrt(absloss_fit_gmm_bfr$P$parameters$variance$sigmasq), 1)
+round(absloss_fit_gmm_bfr$P$parameters$pro, 2)
+
+round(absloss_fit_gmm_bfr$C$parameters$mean, 1)
+round(sqrt(absloss_fit_gmm_bfr$C$parameters$variance$sigmasq), 1)
+round(absloss_fit_gmm_bfr$C$parameters$pro, 2)
+
+
+#plot
+absloss_df = rbind(data.frame(val = absloss_list$P, type = "P"),
+                   data.frame(val = absloss_list$C, type = "C"))
+absloss_df_bfr = rbind(data.frame(val = absloss_list_bfr$P, type = "P"),
+                   data.frame(val = absloss_list_bfr$C, type = "C"))
 
 nbins = 20
 
@@ -519,30 +441,50 @@ ggplot(data = subset(absloss_df, type == "C"), aes(val)) +
 ggsave(paste0(file_path, site, "_4_loss_distr_gmm_counterfactual.png"), width = 15, height = 10, unit = "cm")
 
 
+# 5. Create step-wise release schedule and calculate credibility and permanence ----
 
-# PlotDistr(dat = relloss_df,
-#           dat_fit = NULL,
-#           nbins = 25,
-#           x_label = "C loss rate (%)",
-#           file_suffix = "_5b_rel_distr.png")
+##Calculate a-bar (5% percentile of additionality distribution) ----
+samp_mean = rep(NA, 100)
+samp_median = rep(NA, 100)
+samp_abar = rep(NA, 100)
+for(i in 1:100){
+  samp_additionality = SampByPro(absloss_fit_gmm$C$parameters, n = 10000) - 
+    SampByPro(absloss_fit_gmm$P$parameters, n = 10000)
+  samp_mean[i] = mean(samp_additionality)
+  samp_median[i] = median(samp_additionality)
+  samp_abar[i] = quantile(samp_additionality, 0.05)
+}
+paste0(round(mean(samp_median)), " [", round(t.test(samp_median)$conf.int[1]), " - ", round(t.test(samp_median)$conf.int[2]), "]")
+paste0(round(mean(samp_abar)), " [", round(t.test(samp_abar)$conf.int[1]), " - ", round(t.test(samp_abar)$conf.int[2]), "]")
 
-# 5. Fit and plot release distributions ----
-additionality_series = subset(summ_flux, var == "additionality" & series != "mean" & year > t0)$val #additionality based on difference of empirical time series
+samp_mean_bfr = rep(NA, 100)
+samp_median_bfr = rep(NA, 100)
+samp_abar_bfr = rep(NA, 100)
+for(i in 1:100){
+  samp_additionality_bfr = SampByPro(absloss_fit_gmm_bfr$C$parameters, n = 10000) - 
+    SampByPro(absloss_fit_gmm_bfr$P$parameters, n = 10000)
+  samp_mean_bfr[i] = mean(samp_additionality_bfr)
+  samp_median_bfr[i] = median(samp_additionality_bfr)
+  samp_abar_bfr[i] = quantile(samp_additionality_bfr, 0.05)
+}
 
-release = additionality_series[which(additionality_series > 0)]
-release_fit_exp = MASS::fitdistr(release, densfun = "exponential")
-release_fit_wbl = MASS::fitdistr(release, densfun = "weibull")
-samp_release_exp = rexp(10000, release_fit_exp$estimate)
-samp_release_wbl = rweibull(10000, release_fit_wbl$estimate[1], release_fit_wbl$estimate[2])
+paste0(round(mean(samp_median_bfr)), " [", round(t.test(samp_median_bfr)$conf.int[1]), " - ", round(t.test(samp_median_bfr)$conf.int[2]), "]")
+paste0(round(mean(samp_abar_bfr)), " [", round(t.test(samp_abar_bfr)$conf.int[1]), " - ", round(t.test(samp_abar_bfr)$conf.int[2]), "]")
 
-max_val = max(abs(range(release)))
-max_plot = ceiling(max_val / 10 ^ floor(log10(max_val))) * 10 ^ floor(log10(max_val))
-binwd = max_plot / nbins
 
-ggplot(data = data.frame(val = additionality_series), aes(val)) +
+samp_additionality = SampByPro(absloss_fit_gmm$C$parameters, n = 10000) - 
+  SampByPro(absloss_fit_gmm$P$parameters, n = 10000)
+a_bar = quantile(samp_additionality, 0.05)
+samp_additionality_bfr = SampByPro(absloss_fit_gmm_bfr$C$parameters, n = 10000) - 
+  SampByPro(absloss_fit_gmm_bfr$P$parameters, n = 10000)
+a_bar_bfr = quantile(samp_additionality_bfr, 0.05)
+ggplot(data = data.frame(val = samp_additionality), aes(val)) +
   geom_freqpoly(aes(y = stat(density)), lwd = 1, binwidth = binwd, boundary = 0) +
-  geom_freqpoly(data = data.frame(val = samp_release_wbl), aes(y = stat(density)), lwd = 0.5, lty = 3, binwidth = binwd, boundary = 0) +
-  scale_x_continuous(name = "Additionality (Mg CO2e)", limits = c(-max_plot, max_plot)) +
+  geom_freqpoly(data = data.frame(val = samp_additionality_bfr), aes(y = stat(density)), lwd = 1, binwidth = binwd, boundary = 0, color = "red") +
+  geom_vline(xintercept = 0, lty = "dashed", color = "gray") +
+  geom_vline(xintercept = a_bar) +
+  geom_vline(xintercept = a_bar_bfr, color = "red") +
+  scale_x_continuous(name = "Additionality (Mg CO2e)") +
   scale_y_continuous(name = "Density") +
   ggtitle("") +
   theme_bw() +
@@ -552,76 +494,57 @@ ggplot(data = data.frame(val = additionality_series), aes(val)) +
         legend.position = "none",
         axis.title = element_text(size = 24),
         axis.text = element_text(size = 18))
-ggsave(paste0(file_path, site, "_5_release_distr.png"), width = 15, height = 20, unit = "cm")
+ggsave(paste0(file_path, site, "_add_distr_abar.png"), width = 15, height = 20, unit = "cm")
 
-# 6. Create step-wise release schedule and calculate credibility and permanence ----
-release_factor = 1
-release_factor_df = data.frame(rel_factor = NULL, val = NULL)
 
-for(n in 1:10){
-  release_factor = 1 * n
-  
-  median_ep_vec = rep(NA, 100)
-  cred_vec = rep(NA, 100)
-  
-  for(n_rep in 1:100){
-    H = 50 #evaluation horizon
-    sim_p_loss = rep(0, H)
-    sim_c_loss = rep(0, H)
-    sim_additionality = rep(0, H)
-    sim_credit = rep(0, H)
-    sim_credval = rep(0, H)
-    sim_release = rep(0, 2 * H)
-    sim_damage = rep(0, H)
-    sim_ep = rep(0, H)
-    sim_credibility = rep(1, H)
-    D = 0.03 #discount rate
-    current_year = lubridate::year(lubridate::now())
-    scc_current = scc[which(names(scc) == current_year):length(scc)]
-    for(i in 1:H){
-      year = current_year + i - 1
-      sim_p_loss[i] = rexp(1, absloss_fit_exp$P$estimate)
-      sim_c_loss[i] = rexp(1, absloss_fit_exp$C$estimate)
-      sim_additionality[i] = sim_c_loss[i] - sim_p_loss[i]
-      sim_credit[i] = sim_release[i] + sim_additionality[i]
-      
-      if(sim_credit[i] > 0){
-        sim_credval[i] = sim_credit[i] * scc_current[i]
-        to_be_released = sim_credit[i]
-        j = 0 #number of years after i
-        R = rep(0, 2 * H - i) #release schedule
-        while(to_be_released > 0 & i + j < 2 * H){
-          j = j + 1
-          R[j] = min(to_be_released, rexp(1, release_fit_exp$estimate * release_factor))
-          sim_release[i + j] = sim_release[i + j] + R[j]
-          to_be_released = to_be_released - R[j]
-        }
-        sim_damage[i] = sum(R * scc_current[(i + 1):(2 * H)] / ((1 + D) ^ (1:length(R))))
-        sim_ep[i] = (sim_credval[i] - sim_damage[i]) / sim_credval[i]
-      } else if(sim_credit[i] < 0){
-        sim_credibility[i] = 0
-      }
-    }
+##Perform simulations ----
+mean_ep_vec = rep(NA, 100)
+cred_vec = rep(NA, 100)
+
+for(n_rep in 1:100){
+  H = 50 #evaluation horizon; project duration
+  H_rel = 10 * H #release horizon
+  sim_p_loss = rep(0, H)
+  sim_c_loss = rep(0, H)
+  sim_additionality = rep(0, H)
+  sim_credit = rep(0, H)
+  sim_benefit = rep(0, H)
+  sim_release = rep(0, H_rel)
+  sim_damage = rep(0, H)
+  sim_ep = rep(0, H)
+  sim_credibility = rep(1, H)
+  D = 0.03 #discount rate
+  current_year = lubridate::year(lubridate::now())
+  scc_current = scc[which(names(scc) == current_year):length(scc)]
+  for(i in 1:H){
+    year = current_year + i - 1
+    sim_p_loss[i] = sample(samp_absloss_p_gmm, 1)
+    sim_c_loss[i] = sample(samp_absloss_c_gmm, 1)
+    sim_additionality[i] = sim_c_loss[i] - sim_p_loss[i]
+    sim_credit[i] = sim_release[i] + sim_additionality[i]
     
-    median_ep_vec[n_rep] = mean(sim_ep)
-    cred_vec[n_rep] = sum(sim_credibility) / H
+    if(sim_credit[i] > 0){
+      sim_benefit[i] = sim_credit[i] * scc_current[i]
+      to_be_released = sim_credit[i]
+      j = 0 #number of years after i
+      R = rep(0, H_rel - i) #release schedule
+      while(to_be_released > 0 & i + j < H_rel){
+        j = j + 1
+        max_release = ifelse(i + j <= H, max(-a_bar, 0), max(-a_bar_bfr, 0)) #maximum release needed annually
+        R[j] = min(to_be_released, max_release - sim_release[i + j])
+        to_be_released = to_be_released - R[j]
+        sim_release[i + j] = sim_release[i + j] + R[j]
+      }
+      sim_damage[i] = sum(R * scc_current[(i + 1):H_rel] / ((1 + D) ^ (1:length(R))))
+      sim_ep[i] = (sim_benefit[i] - sim_damage[i]) / sim_benefit[i]
+    } else if(sim_credit[i] < 0){
+      sim_credibility[i] = 0
+    }
   }
-  release_factor_df = rbind(release_factor_df, data.frame(rel_factor = release_factor, ep = median_ep_vec, cred = cred_vec))
+  
+  mean_ep_vec[n_rep] = mean(sim_ep)
+  cred_vec[n_rep] = sum(sim_credibility) / H
 }
-
-release_factor_df$rel_factor = as.factor(release_factor_df$rel_factor)
-ggplot(data = release_factor_df, aes(x = rel_factor)) +
-  geom_boxplot(aes(y = ep)) +
-  theme_bw() +
-  theme(axis.title = element_text(size = 24),
-        axis.text = element_text(size = 18))
-
-ggplot(data = release_factor_df, aes(x = rel_factor)) +
-  geom_boxplot(aes(y = cred)) +
-  theme_bw() +
-  theme(axis.title = element_text(size = 24),
-        axis.text = element_text(size = 18))
-
 
 sim_df = rbind(data.frame(var = "Project stock", val = subset(summ_stock, year == t0 & series == "mean" & var == "treatment")$val - cumsum(sim_p_loss)),
                data.frame(var = "Counterfactual stock", val = subset(summ_stock, year == t0 & series == "mean" & var == "control")$val - cumsum(sim_c_loss)),
@@ -630,7 +553,7 @@ sim_df = rbind(data.frame(var = "Project stock", val = subset(summ_stock, year =
                data.frame(var = "Additionality", val = sim_additionality),
                data.frame(var = "Credit", val = sim_credit),
                data.frame(var = "Anticipated_release", val = sim_release[1:H]),
-               data.frame(var = "Credit_value", val = sim_credval),
+               data.frame(var = "Credit_benefit", val = sim_benefit),
                data.frame(var = "Damage", val = sim_damage),
                data.frame(var = "EP", val = sim_ep),
                data.frame(var = "Credibility", val = sim_credibility)) %>%
@@ -645,11 +568,11 @@ ggplot(data = subset(sim_df, var %in% c("Project stock", "Counterfactual stock")
   theme_bw() +
   theme(axis.line = element_line(linewidth = 0.5),
         panel.grid.minor = element_blank(),
-        axis.title = element_text(size = 16),
-        axis.text.x = element_text(size = 14, angle = 45, vjust = 0.5),
-        axis.text.y = element_text(size = 14, angle = 45),
-        plot.margin = margin(0.1, 0.5, 0.1, 0.5, "cm"))
-ggsave(paste0(file_path, site, "_6a_sim_stock.png"), width = 15, height = 10, unit = "cm")
+        axis.title = element_text(size = 24),
+        axis.text.x = element_text(size = 18, angle = 45, vjust = 0.5),
+        axis.text.y = element_text(size = 18, angle = 45),
+        plot.margin = margin(0.7, 1, 0.7, 0.7, "cm"))
+ggsave(paste0(file_path, site, "_6a_sim_stock.png"), width = 15, height = 15, unit = "cm")
 
 ggplot(data = subset(sim_df, var %in% c("Additionality", "Anticipated_release", "Credit"))) +
   geom_line(aes(x = year, y = val, col = var, lty = var)) +
@@ -663,36 +586,28 @@ ggplot(data = subset(sim_df, var %in% c("Additionality", "Anticipated_release", 
   theme_bw() +
   theme(axis.line = element_line(linewidth = 0.5),
         panel.grid.minor = element_blank(),
-        axis.title = element_text(size = 16),
-        axis.text.x = element_text(size = 14, angle = 45, vjust = 0.5),
-        axis.text.y = element_text(size = 14, angle = 45),
-        plot.margin = margin(0.1, 0.5, 0.1, 0.5, "cm"))
-ggsave(paste0(file_path, site, "_6c_sim_credit.png"), width = 15, height = 10, unit = "cm")
+        axis.title = element_text(size = 24),
+        axis.text.x = element_text(size = 18, angle = 45, vjust = 0.5),
+        axis.text.y = element_text(size = 18, angle = 45),
+        plot.margin = margin(0.7, 1, 0.7, 0.7, "cm"))
+ggsave(paste0(file_path, site, "_6c_sim_credit.png"), width = 15, height = 15, unit = "cm")
 
 
 ggplot(data = subset(sim_df, var == "EP")) +
   geom_bar(stat = "identity", aes(x = year, y = val)) +
   geom_point(data = subset(sim_df, var == "Credibility"), aes(x = year, y = -val), col = "red") +
   scale_x_continuous(name = "Year", breaks = seq(current_year, current_year + H, by = 10)) + 
-  scale_y_continuous(name = "eP", limits = c(0, 0.2)) + 
+  scale_y_continuous(name = "eP", limits = c(0, 1)) + 
   ggtitle("") +
   theme_bw() +
   theme(axis.line = element_line(linewidth = 0.5),
         panel.grid.minor = element_blank(),
-        axis.title = element_text(size = 16),
-        axis.text.x = element_text(size = 14, angle = 45, vjust = 0.5),
-        axis.text.y = element_text(size = 14, angle = 45),
-        plot.margin = margin(0.1, 0.5, 0.1, 0.5, "cm"))
-ggsave(paste0(file_path, site, "_6e_sim_ep.png"), width = 15, height = 10, unit = "cm")
+        axis.title = element_text(size = 24),
+        axis.text.x = element_text(size = 18, angle = 45, vjust = 0.5),
+        axis.text.y = element_text(size = 18, angle = 45),
+        plot.margin = margin(0.7, 1, 0.7, 0.7, "cm"))
+ggsave(paste0(file_path, site, "_6e_sim_ep.png"), width = 15, height = 15, unit = "cm")
 
-
-paste0(formatC(median(sim_additionality), format = "e", digits = 1), " [",
-       formatC(quantile(sim_additionality, 0.25), format = "e", digits = 1), " - ",
-       formatC(quantile(sim_additionality, 0.75), format = "e", digits = 1), "]")
-paste0(formatC(median(sim_credit), format = "e", digits = 1), " [",
-       formatC(quantile(sim_credit, 0.25), format = "e", digits = 1), " - ",
-       formatC(quantile(sim_credit, 0.75), format = "e", digits = 1), "]")
-paste0(signif(median(sim_ep), 2), " [",
-       signif(quantile(sim_ep, 0.25), 2), " - ",
-       signif(quantile(sim_ep, 0.75), 2), "]")
-(credibility = sum(sim_credibility) / length(sim_credibility))
+paste0(signif(summary(mean_ep_vec)[3], 2), " [", signif(summary(mean_ep_vec)[2], 2), " - ", signif(summary(mean_ep_vec)[5], 2), "]")
+paste0(signif(summary(cred_vec)[3], 2), " [", signif(summary(cred_vec)[2], 2), " - ", signif(summary(cred_vec)[5], 2), "]")
+length(which(cred_vec < 0.95)) / length(cred_vec)
