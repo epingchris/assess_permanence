@@ -78,11 +78,8 @@ summ_flux = rbind(summariseSeries(flux_series_sim, "treatment_proj"),
                   summariseSeries(flux_series_sim, "control_proj"),
                   summariseSeries(flux_series_sim, "additionality"))
 
-summ_flux_rel = rbind(summariseSeries(flux_series_sim_rel, "rel_flux_treatment"),
-                      summariseSeries(flux_series_sim_rel, "rel_flux_control")) %>%
-  mutate(val = val * -1)
 
-## Plot time series ----
+#plot time series
 PlotTimeSeries = function(dat, y_label, y_lim, file_suffix){
   ggplot(data = dat, aes(col = var)) +
     geom_line(aes(x = year, y = val, lwd = series, alpha = series), show.legend = F) +
@@ -108,7 +105,6 @@ PlotTimeSeries = function(dat, y_label, y_lim, file_suffix){
   ggsave(paste0(file_path, site, file_suffix), width = 15, height = 20, unit = "cm")
 }
 
-#absolute carbon loss
 y_min = switch(site,
                Gola = -4e+05,
                WLT_VNCC_KNT = -4e+05,
@@ -122,18 +118,9 @@ PlotTimeSeries(dat = subset(summ_flux, var %in% c("treatment_proj", "control_pro
                y_lim = c(y_min, 25000),
                file_suffix = "_2_time_series.png")
 
-#carbon loss rate
-# summ_flux_rel_perc = summ_flux_rel %>% mutate(val = val * 100)
-# PlotTimeSeries(dat = summ_flux_rel_perc,
-#                #lim_to_use = c(floor(min(dat$val) / (10 ^ 5)) * (10 ^ 5), 0)
-#                y_label = "C loss rate (%)",
-#                y_lim = c(0, 2), #for comparison between the five sites
-#                file_suffix = "_2b_rel_time_series.png")
 
+# 3. Describe empirical carbon loss distributions ----
 
-# 3. Describe empirical distributions ----
-
-#absolute carbon loss
 absloss_p = subset(summ_flux, var == "treatment_proj" & year >= t0 & series != "mean") %>%
   mutate(val = val * (-1), var = NULL)
 absloss_c = subset(summ_flux, var == "control_proj" & year >= t0 & series != "mean") %>%
@@ -169,104 +156,6 @@ bin_digit = floor(log10(max(absloss_p$val, absloss_c$val) / 12))
 break_max = ceiling(max(absloss_p$val, absloss_c$val) / (10 ^ bin_digit)) * (10 ^ bin_digit)
 
 JSTest(subset(absloss_p, val > 0)$val, subset(absloss_p, val > 0)$val, bins = seq(0, break_max, len = 13))
-
-#3a. Foray into time series analysis ----
-
-# ## Detrend with linear model ----
-# absloss_p_lm = lm(val ~ year, data = absloss_p)
-# absloss_c_lm = lm(val ~ year, data = absloss_c)
-# 
-# summary(absloss_p_lm)
-# summary(absloss_c_lm)
-# 
-# absloss_p %<>%
-#   mutate(resid = absloss_p_lm$residuals)
-# 
-# absloss_c %<>%
-#   mutate(resid = absloss_c_lm$residuals)
-
-# ### 1. KS test between adjacent subsets of moving windows
-# year_vec = t0:2021
-# wdth = 5
-# ks_vec = rep(NA, length(year_vec) - wdth)
-# pval_vec = rep(NA, length(year_vec) - wdth)
-# for(i in 1:(length(year_vec) - wdth)){
-#   ks_res = ks.boot(subset(absloss_p_long, year %in% year_vec[i:(i + wdth - 1)])$val,
-#                    subset(absloss_p_long, year %in% year_vec[(i + 1):(i + wdth)])$val, nboots = 10000)
-#   ks_vec[i] = ks_res$ks$statistic
-#   pval_vec[i] = ks_res$ks.boot.pvalue
-# }
-# par(mar = c(5, 4, 4, 5) + 0.1)
-# plot(1:(length(year_vec) - wdth), ks_vec, ylim = c(0, 1), xlab = "Year interval pair", ylab = "KS test statistics",
-#      type = "l", xaxt = "n")
-# axis(1, at = 1:(length(year_vec) - wdth),
-#      labels = paste0(year_vec[1:(length(year_vec) - wdth)], " - ", year_vec[wdth:(length(year_vec) - 1)], " vs. \n",
-#                      year_vec[2:(length(year_vec) - wdth + 1)], " - ", year_vec[(wdth + 1):length(year_vec)]),
-#      padj = 0.5)
-# axis(4, at = seq(0, 1, by = 0.2), col = "red", col.ticks = "red", col.axis = "red")
-# mtext("p value", side = 4, line = 3, col = "red")
-# lines(1:(length(year_vec) - wdth), pval_vec, ylim = c(0, 1), col = "red")
-# abline(h = 0.05, col = "red", lty = 2)
-
-## Test for stationarity with original values ----
-#trend-stationary: https://en.wikipedia.org/wiki/Trend-stationary_process
-#https://www.r-econometrics.com/timeseries/stationarity/
-#https://uk.mathworks.com/help/econ/trend-stationary-vs-difference-stationary.html
-#https://python.plainenglish.io/time-series-analysis-mastering-the-concepts-of-stationarity-c9fc489893cf
-
-# absloss_p_val = pivot_wider(mutate(absloss_p, resid = NULL), names_from = "series", values_from = "val") %>%
-#   mutate(year = NULL)
-# absloss_p_val_adf = sapply(absloss_p_val, function(x) tseries::adf.test(x)$p.value)
-# length(which(absloss_p_val_adf >= 0.05)) / 20
-# absloss_p_val_kpss_level = sapply(absloss_p_val, function(x) tseries::kpss.test(x, null = "Level")$p.value)
-# length(which(absloss_p_val_kpss_level < 0.05)) / 20
-# absloss_p_val_kpss_trend = sapply(absloss_p_val, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
-# length(which(absloss_p_val_kpss_trend < 0.05)) / 20
-# 
-# absloss_c_val = pivot_wider(mutate(absloss_c, resid = NULL), names_from = "series", values_from = "val") %>%
-#   mutate(year = NULL)
-# absloss_c_val_adf = sapply(absloss_c_val, function(x) tseries::adf.test(x)$p.value)
-# length(which(absloss_c_val_adf >= 0.05)) / 20
-# absloss_c_val_kpss_level = sapply(absloss_c_val, function(x) tseries::kpss.test(x, null = "Level")$p.value)
-# length(which(absloss_c_val_kpss_level < 0.05)) / 20
-# absloss_c_val_kpss_trend = sapply(absloss_c_val, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
-# length(which(absloss_c_val_kpss_trend < 0.05)) / 20
-# 
-# ## Test for stationarity with LM residuals ----
-# absloss_p_resid = pivot_wider(mutate(absloss_p, val = NULL), names_from = "series", values_from = "resid") %>%
-#   mutate(year = NULL)
-# absloss_p_resid_adf = sapply(absloss_p_resid, function(x) tseries::adf.test(x)$p.value)
-# length(which(absloss_p_resid_adf >= 0.05)) / 20
-# absloss_p_resid_kpss_level = sapply(absloss_p_resid, function(x) tseries::kpss.test(x, null = "Level")$p.value)
-# length(which(absloss_p_resid_kpss_level < 0.05)) / 20
-# absloss_p_resid_kpss_trend = sapply(absloss_p_resid, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
-# length(which(absloss_p_resid_kpss_trend < 0.05)) / 20
-# 
-# absloss_c_resid = pivot_wider(mutate(absloss_c, val = NULL), names_from = "series", values_from = "resid") %>%
-#   mutate(year = NULL)
-# absloss_c_resid_adf = sapply(absloss_c_resid, function(x) tseries::adf.test(x)$p.value)
-# length(which(absloss_c_resid_adf >= 0.05)) / 20
-# absloss_c_resid_kpss_level = sapply(absloss_c_resid, function(x) tseries::kpss.test(x, null = "Level")$p.value)
-# length(which(absloss_c_resid_kpss_level < 0.05)) / 20
-# absloss_c_resid_kpss_trend = sapply(absloss_c_resid, function(x) tseries::kpss.test(x, null = "Trend")$p.value)
-# length(which(absloss_c_resid_kpss_trend < 0.05)) / 20
-# 
-# ## Boxplots to visualise outliers ----
-# 
-# par(mfrow = c(1, 2))
-# boxplot(absloss_p$val, main = "Project")
-# boxplot(absloss_c$val, main = "Counterfactual")
-# par(mfrow = c(1, 1))
-# 
-# ## forecast::tsoutliers ----
-# 
-# absloss_p_val_outl = lapply(absloss_p_val, function(x) forecast::tsoutliers(x))
-# absloss_c_val_outl = lapply(absloss_c_val, function(x) forecast::tsoutliers(x))
-# table(unlist(sapply(absloss_p_val_outl, function(x) x$index)))
-# table(unlist(sapply(absloss_c_val_outl, function(x) x$index)))
-# 
-# unique(absloss_p$year)
-# unique(absloss_c$year)
 
 
 # 4. Fit and plot C loss distributions ----
@@ -497,7 +386,7 @@ ggplot(data = data.frame(val = samp_additionality), aes(val)) +
 ggsave(paste0(file_path, site, "_add_distr_abar.png"), width = 15, height = 20, unit = "cm")
 
 
-##Perform simulations ----
+##Perform simulations (static a-bar) ----
 mean_ep_vec = rep(NA, 100)
 cred_vec = rep(NA, 100)
 
