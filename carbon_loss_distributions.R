@@ -18,7 +18,7 @@ source("/Users/E-Ping Rau/OneDrive - University of Cambridge/carbon_release_patt
 #rmarkdown::render("/Users/E-Ping Rau/OneDrive - University of Cambridge/4C_evaluations/R/Reports/eval_template/evaluation_epingrau.Rmd", clean = FALSE)
 #eval_classes = c(1, 2, 3, 4) #only evaluate classes 1-4
 ## 1b. Load existing data for sites ----
-site = "VCS_934" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
+site = "Gola_country" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
 load(file = paste0(file_path, site, ".Rdata"))
 
 # 2. Calculate carbon stock and flux ----
