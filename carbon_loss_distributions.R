@@ -18,7 +18,7 @@ source("/Users/E-Ping Rau/OneDrive - University of Cambridge/carbon_release_patt
 #rmarkdown::render("/Users/E-Ping Rau/OneDrive - University of Cambridge/4C_evaluations/R/Reports/eval_template/evaluation_epingrau.Rmd", clean = FALSE)
 #eval_classes = c(1, 2, 3, 4) #only evaluate classes 1-4
 ## 1b. Load existing data for sites ----
-site = "Gola_country" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
+site = "VCS_1396" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
 load(file = paste0(file_path, site, ".Rdata"))
 
 # 2. Calculate carbon stock and flux ----
@@ -204,7 +204,7 @@ lapply(absloss_fit_gmm_bfr, function(x) plot(x, what = "classification", main = 
 par(mfrow = c(1, 1))
 
 #generate sampled values from fitted distributions
-SampByPro = function(params, n){
+SampGMM = function(params, n){
   if(length(params$variance$sigmasq) == 1) params$variance$sigmasq[2] = params$variance$sigmasq[1]
   samp_vec = NULL
   while(length(samp_vec) < n) {
@@ -215,10 +215,10 @@ SampByPro = function(params, n){
   return(samp_vec)
 }
 
-samp_absloss_p_gmm = SampByPro(absloss_fit_gmm$P$parameters, n = max(sapply(absloss_list, length)))
-samp_absloss_c_gmm = SampByPro(absloss_fit_gmm$C$parameters, n = max(sapply(absloss_list, length)))
-samp_absloss_p_bfr_gmm = SampByPro(absloss_fit_gmm_bfr$P$parameters, n = max(sapply(absloss_list_bfr, length)))
-samp_absloss_c_bfr_gmm = SampByPro(absloss_fit_gmm_bfr$C$parameters, n = max(sapply(absloss_list_bfr, length)))
+samp_absloss_p_gmm = SampGMM(absloss_fit_gmm$P$parameters, n = max(sapply(absloss_list, length)))
+samp_absloss_c_gmm = SampGMM(absloss_fit_gmm$C$parameters, n = max(sapply(absloss_list, length)))
+samp_absloss_p_bfr_gmm = SampGMM(absloss_fit_gmm_bfr$P$parameters, n = max(sapply(absloss_list_bfr, length)))
+samp_absloss_c_bfr_gmm = SampGMM(absloss_fit_gmm_bfr$C$parameters, n = max(sapply(absloss_list_bfr, length)))
 
 #test goodness of fit
 gof_gmm_p = EnvStats::gofTest(absloss_list$P, samp_absloss_p_gmm)
@@ -337,8 +337,8 @@ samp_mean = rep(NA, 100)
 samp_median = rep(NA, 100)
 samp_abar = rep(NA, 100)
 for(i in 1:100){
-  samp_additionality = SampByPro(absloss_fit_gmm$C$parameters, n = 10000) - 
-    SampByPro(absloss_fit_gmm$P$parameters, n = 10000)
+  samp_additionality = SampGMM(absloss_fit_gmm$C$parameters, n = 10000) - 
+    SampGMM(absloss_fit_gmm$P$parameters, n = 10000)
   samp_mean[i] = mean(samp_additionality)
   samp_median[i] = median(samp_additionality)
   samp_abar[i] = quantile(samp_additionality, 0.05)
@@ -350,8 +350,8 @@ samp_mean_bfr = rep(NA, 100)
 samp_median_bfr = rep(NA, 100)
 samp_abar_bfr = rep(NA, 100)
 for(i in 1:100){
-  samp_additionality_bfr = SampByPro(absloss_fit_gmm_bfr$C$parameters, n = 10000) - 
-    SampByPro(absloss_fit_gmm_bfr$P$parameters, n = 10000)
+  samp_additionality_bfr = SampGMM(absloss_fit_gmm_bfr$C$parameters, n = 10000) - 
+    SampGMM(absloss_fit_gmm_bfr$P$parameters, n = 10000)
   samp_mean_bfr[i] = mean(samp_additionality_bfr)
   samp_median_bfr[i] = median(samp_additionality_bfr)
   samp_abar_bfr[i] = quantile(samp_additionality_bfr, 0.05)
@@ -361,11 +361,11 @@ paste0(round(mean(samp_median_bfr)), " [", round(t.test(samp_median_bfr)$conf.in
 paste0(round(mean(samp_abar_bfr)), " [", round(t.test(samp_abar_bfr)$conf.int[1]), " - ", round(t.test(samp_abar_bfr)$conf.int[2]), "]")
 
 
-samp_additionality = SampByPro(absloss_fit_gmm$C$parameters, n = 10000) - 
-  SampByPro(absloss_fit_gmm$P$parameters, n = 10000)
+samp_additionality = SampGMM(absloss_fit_gmm$C$parameters, n = 10000) - 
+  SampGMM(absloss_fit_gmm$P$parameters, n = 10000)
 a_bar = quantile(samp_additionality, 0.05)
-samp_additionality_bfr = SampByPro(absloss_fit_gmm_bfr$C$parameters, n = 10000) - 
-  SampByPro(absloss_fit_gmm_bfr$P$parameters, n = 10000)
+samp_additionality_bfr = SampGMM(absloss_fit_gmm_bfr$C$parameters, n = 10000) - 
+  SampGMM(absloss_fit_gmm_bfr$P$parameters, n = 10000)
 a_bar_bfr = quantile(samp_additionality_bfr, 0.05)
 ggplot(data = data.frame(val = samp_additionality), aes(val)) +
   geom_freqpoly(aes(y = stat(density)), lwd = 1, binwidth = binwd, boundary = 0) +
