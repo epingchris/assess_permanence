@@ -15,7 +15,7 @@ file_path = "C:/Users/E-Ping Rau/OneDrive - University of Cambridge/carbon_relea
 source("/Users/E-Ping Rau/OneDrive - University of Cambridge/carbon_release_pattern/divergence.R")
 
 # 1. Load existing data for sites ----
-site = "CIF_Alto_Mayo" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
+site = "WLT_VNCC_KNT" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
 site_name = switch(site,
                    Gola = "Gola",
                    WLT_VNCC_KNT = "KNT",
@@ -148,12 +148,12 @@ sim_damage = matrix(0, H, n_rep)
 sim_ep = matrix(0, H, n_rep)
 sim_credibility = matrix(1, H, n_rep)
 sim_buffer = matrix(0, H, n_rep)
-to_be_released = matrix(0, H, n_rep)
 sim_r_sched = vector("list", n_rep)
 
 for(j in 1:n_rep){
   r_sched = matrix(0, H, H + 1) #release schedule
   buffer_pool = 0
+  if(j == 1) cat("Buffer at start: ", buffer_pool, "\n")
   for(i in 1:H){
     year_i = t0 + i - 1
     
@@ -161,8 +161,7 @@ for(j in 1:n_rep){
     if(year_i <= max(absloss_p_init$year)) {
       sim_p_loss[i, j] = sample(subset(absloss_p_init, year == year_i)$val, 1)
       sim_c_loss[i, j] = sample(subset(absloss_c_init, year == year_i)$val, 1)
-      sim_additionality[i, j] = sim_c_loss[i, j] - sim_p_loss[i, j]
-      
+
       #calculate a-bar based on carbon loss distributions
       absloss_p_updated = subset(absloss_p_init, year <= year_i)$val
       absloss_c_updated = subset(absloss_c_init, year <= year_i)$val
@@ -173,18 +172,18 @@ for(j in 1:n_rep){
       samp_additionality = SampGMM(absloss_c_fit$parameters, n = length(absloss_c_updated)) -
         SampGMM(absloss_p_fit$parameters, n = length(absloss_p_updated))
       abar = quantile(samp_additionality, 0.05)
-      sim_abar[i, j] = abar
     } else if(year_i > max(absloss_p_init$year)){
       sim_p_loss[i, j] = SampGMM(absloss_p_fit$parameters, n = 1)
       sim_c_loss[i, j] = SampGMM(absloss_c_fit$parameters, n = 1)
-      sim_additionality[i, j] = sim_c_loss[i, j] - sim_p_loss[i, j]
-      sim_abar[i, j] = abar
     }
+    sim_additionality[i, j] = sim_c_loss[i, j] - sim_p_loss[i, j]
+    sim_abar[i, j] = abar
     
     if(i <= bp) {
       #first five years: no credits/releases; positive additionality added to buffer pool
       if(sim_additionality[i, j] > 0) buffer_pool = buffer_pool + sim_additionality[i, j]
       sim_credit[i, j] = 0
+      if(j == 1) cat("Buffer at year", i, ": ", buffer_pool, "\n")
     } else {
       #from sixth year on: get credits and anticipated releases
 
@@ -193,30 +192,37 @@ for(j in 1:n_rep){
       if(buffer_pool > 0) {
         max_release = ifelse(abar > 0, 0, -abar) #if a-bar is positive, maximum release is zero
         can_be_released = max(0, max_release - sim_release[i, j])
+        #cat("at year", i, ", can be released from buffer =", max_release, "-", sim_release[i, j], "=", can_be_released, "\n")
         sim_release[i, j] = sim_release[i, j] + can_be_released
         buffer_pool = buffer_pool - can_be_released
+        #cat("total release now =", sim_release[i, j], ", left in buffer =", buffer_pool, "\n")
       }
-      
+
       sim_credit[i, j] = sim_additionality[i, j] + sim_release[i, j]
       if(sim_credit[i, j] > 0){
-        to_be_released[i, j] = sim_credit[i, j]
+        to_be_released = sim_credit[i, j]
+        if(j == 1) cat("credits at year ", i, ": ", to_be_released, "\n")
         sim_benefit[i, j] = sim_credit[i, j] * filter(scc_extrap, year == year_i)$central
         k = i #kth year(s), for which we estimate anticipated release
-        while(to_be_released[i, j] > 0){
+        while(to_be_released > 0){
           k = k + 1
           if(k > H) {
-            can_be_released = to_be_released[i, j]
+            can_be_released = to_be_released
             #after project ends, all remaining credits are released the next year
           } else {
             max_release = ifelse(abar > 0, 0, -abar) #if a-bar is positive, maximum release is zero
             can_be_released = max(0, max_release - sim_release[k, j])
           }
-          r_sched[i, k] = min(to_be_released[i, j], can_be_released)
-          to_be_released[i, j] = to_be_released[i, j] - r_sched[i, k]
+          #cat("at year", k, ", can be released =", max_release, "-", sim_release[k, j], "=", can_be_released, "\n")
+          
+          r_sched[i, k] = min(to_be_released, can_be_released)
+          to_be_released = to_be_released - r_sched[i, k]
           sim_release[k, j] = sim_release[k, j] + r_sched[i, k]
+          #cat("actually released =", r_sched[i, k], ", total release now =", sim_release[k, j], ", left to release =", to_be_released, "\n")
         }
-        sim_damage[i, j] = sum(r_sched[i, ] * filter(scc_extrap, year %in% t0:(t0 + H))$central / ((1 + D) ^ (1:(H + 1))))
+        sim_damage[i, j] = sum(r_sched[i, (i + 1):(H + 1)] * filter(scc_extrap, year %in% (year_i + 1):(t0 + H))$central / ((1 + D) ^ (1:(H + 1 - i))))
         sim_ep[i, j] = (sim_benefit[i, j] - sim_damage[i, j]) / sim_benefit[i, j]
+        #cat("Credit =", sim_credit[i, j], ", Benefit =", sim_benefit[i, j], ", Damage =", sim_damage[i, j], ", eP =", sim_ep[i, j], "\n")
       } else if(sim_credit[i, j] <= 0){
         sim_ep[i, j] = 0
         sim_credibility[i, j] = 0
