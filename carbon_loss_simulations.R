@@ -12,10 +12,11 @@ library(Matching)
 library(mclust)
 library(Hmisc)
 file_path = "C:/Users/E-Ping Rau/OneDrive - University of Cambridge/carbon_release_pattern/"
-source("/Users/E-Ping Rau/OneDrive - University of Cambridge/carbon_release_pattern/divergence.R")
+#source("/Users/E-Ping Rau/OneDrive - University of Cambridge/carbon_release_pattern/divergence.R")
 
 # 1. Load existing data for sites ----
-site = "WLT_VNCC_KNT" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
+site = "Gola_country" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
+load(file = paste0(file_path, site, ".Rdata"))
 site_name = switch(site,
                    Gola = "Gola",
                    WLT_VNCC_KNT = "KNT",
@@ -30,7 +31,6 @@ scc_extrap = Hmisc::approxExtrap(scc_new$year, scc_new$central, 2000:2009) %>%
   mutate(low = central * 0.5, high = central * 1.5) %>%
   relocate(c(1, 3, 2, 4)) %>%
   rbind(scc_new)
-load(file = paste0(file_path, site, ".Rdata"))
 
 # 2. Calculate carbon stock and flux ----
 makeFlux = function(project_series, leakage_series){
@@ -89,35 +89,17 @@ summ_flux = rbind(summariseSeries(flux_series_sim, "treatment_proj"),
                   summariseSeries(flux_series_sim, "control_proj"),
                   summariseSeries(flux_series_sim, "additionality"))
 
+#to discuss: do we use the mean carbon loss value from t-10 to t and update,
+#or do we use all the repeated carbon loss estimates from t0 to t and update?
 absloss_p_init = subset(summ_flux, var == "treatment_proj" & year >= t0 & series != "mean") %>%
   mutate(val = val * (-1), var = NULL, series = NULL)
 absloss_c_init = subset(summ_flux, var == "control_proj" & year >= t0 & series != "mean") %>%
   mutate(val = val * (-1), var = NULL, series = NULL)
+# absloss_p_init = subset(summ_flux, var == "treatment_proj" & year >= t0 - 10 & series == "mean") %>%
+#   mutate(val = val * (-1), var = NULL, series = NULL)
+# absloss_c_init = subset(summ_flux, var == "control_proj" & year >= t0 - 10 & series == "mean") %>%
+#   mutate(val = val * (-1), var = NULL, series = NULL)
 
-
-#test project-counterfactual carbon loss correlation and its impact on a-bar estimation based on different methods
-cor.test(absloss_p_init$val, absloss_c_init$val, alternative = "greater", method = "p")
-#highly significant for all except Alto Mayo where p-value is 0.06
-
-add_obs = absloss_c_init$val - absloss_p_init$val
-abar_obs = quantile(add_obs, 0.05)
-
-absloss_p_fit = mclust::Mclust(absloss_p_init$val, 2)
-absloss_c_fit = mclust::Mclust(absloss_c_init$val, 2)
-
-abar_samp = rep(NA, 10000)
-
-for(i in 1:10000){
-  add_samp = SampGMM(absloss_c_fit$parameters, n = length(absloss_c_init$val)) -
-    SampGMM(absloss_p_fit$parameters, n = length(absloss_p_init$val))
-  abar_samp[i] = quantile(add_samp, 0.05)
-}
-
-hist(abar_samp, main = site_name, cex.main = 3, cex.axis = 2)
-abline(v = abar_obs, lwd = 2, col = "red")
-abline(v = median(abar_samp), lwd = 2)
-
-# 2. Perform simulations (dynamic a-bar) ----
 #function to generate sampled values from GMM-fitted distributions
 SampGMM = function(params, n){
   if(length(params$variance$sigmasq) == 1) params$variance$sigmasq[2] = params$variance$sigmasq[1]
@@ -130,8 +112,41 @@ SampGMM = function(params, n){
   return(samp_vec)
 }
 
+#test project-counterfactual carbon loss correlation and its impact on a-bar estimation based on different methods
+cor.test(absloss_p_init$val, absloss_c_init$val, alternative = "greater", method = "p")
+#highly significant for all except Alto Mayo where p-value is 0.06
+
+absloss_p_fit = mclust::Mclust(absloss_p_init$val, 2)
+absloss_c_fit = mclust::Mclust(absloss_c_init$val, 2)
+
+abar_samp = rep(NA, 1000)
+
+for(i in 1:1000){
+  add_samp = SampGMM(absloss_c_fit$parameters, n = 1000) -
+    SampGMM(absloss_p_fit$parameters, n = 1000)
+  abar_samp[i] = quantile(add_samp, 0.05)
+}
+
+ggplot(data = data.frame(var = "abar", val = abar_samp)) +
+  geom_histogram(aes(x = val)) +
+  geom_vline(xintercept = median(abar_samp), col = "red") +
+  scale_x_continuous(name = "A-bar") + 
+  scale_y_continuous(name = "Counts") + 
+  theme_bw() +
+  theme(axis.line = element_line(linewidth = 0.5),
+        panel.grid.minor = element_blank(),
+        axis.title = element_text(size = 24),
+        axis.text.x = element_text(size = 18, angle = 45, vjust = 0.5),
+        axis.text.y = element_text(size = 18, angle = 45),
+        plot.margin = margin(0.7, 1, 0.7, 0.7, "cm"))
+ggsave(paste0(file_path, site, "_6_abar_distribution.png"), width = 15, height = 10, unit = "cm")
+
+
+# 2. Perform simulations (dynamic a-bar) ----
 n_rep = 100 #number of repetitions
 H = 50 #evaluation horizon; project duration
+year_max = max(scc_extrap$year)
+H_rel = year_max - t0 + 1
 D = 0.03 #discount rate
 bp = 5 #buffer period
 #current_year = lubridate::year(lubridate::now()) #pretend every project starts at 2023
@@ -143,34 +158,38 @@ sim_additionality = matrix(0, H, n_rep)
 sim_credit = matrix(0, H, n_rep)
 sim_benefit = matrix(0, H, n_rep)
 sim_abar = matrix(0, H, n_rep)
-sim_release = matrix(0, H + 1, n_rep)
+sim_release = matrix(0, H_rel, n_rep)
 sim_damage = matrix(0, H, n_rep)
 sim_ep = matrix(0, H, n_rep)
 sim_credibility = matrix(1, H, n_rep)
 sim_buffer = matrix(0, H, n_rep)
 sim_r_sched = vector("list", n_rep)
 
+#used as release after project ends
+absloss_c_pre = subset(summ_flux, var == "control_proj" & year < t0 & series == "mean" & val < 0) %>%
+  mutate(val = val * (-1), var = NULL, series = NULL)
+absloss_c_pre_fit = mclust::Mclust(absloss_c_pre$val, 2)
+samploss_c_pre = SampGMM(absloss_c_pre_fit$parameters, n = 1000)
+loss_pre = mean(samploss_c_pre)
+
 for(j in 1:n_rep){
-  r_sched = matrix(0, H, H + 1) #release schedule
+  r_sched = matrix(0, H, H_rel) #release schedule
   buffer_pool = 0
-  if(j == 1) cat("Buffer at start: ", buffer_pool, "\n")
+  #cat("Buffer at start: ", buffer_pool, "\n")
   for(i in 1:H){
     year_i = t0 + i - 1
     
     #get additionality: use ex post values in years where they are available, sample from fitted distributions otherwise
     if(year_i <= max(absloss_p_init$year)) {
-      sim_p_loss[i, j] = sample(subset(absloss_p_init, year == year_i)$val, 1)
-      sim_c_loss[i, j] = sample(subset(absloss_c_init, year == year_i)$val, 1)
+      sim_p_loss[i, j] = mean(subset(absloss_p_init, year == year_i)$val)
+      sim_c_loss[i, j] = mean(subset(absloss_c_init, year == year_i)$val)
 
       #calculate a-bar based on carbon loss distributions
-      absloss_p_updated = subset(absloss_p_init, year <= year_i)$val
-      absloss_c_updated = subset(absloss_c_init, year <= year_i)$val
+      absloss_p_fit = mclust::Mclust(subset(absloss_p_init, year <= year_i)$val, 2)
+      absloss_c_fit = mclust::Mclust(subset(absloss_c_init, year <= year_i)$val, 2)
       
-      absloss_p_fit = mclust::Mclust(absloss_p_updated, 2)
-      absloss_c_fit = mclust::Mclust(absloss_c_updated, 2)
-      
-      samp_additionality = SampGMM(absloss_c_fit$parameters, n = length(absloss_c_updated)) -
-        SampGMM(absloss_p_fit$parameters, n = length(absloss_p_updated))
+      samp_additionality = SampGMM(absloss_c_fit$parameters, n = 1000) -
+        SampGMM(absloss_p_fit$parameters, n = 1000)
       abar = quantile(samp_additionality, 0.05)
     } else if(year_i > max(absloss_p_init$year)){
       sim_p_loss[i, j] = SampGMM(absloss_p_fit$parameters, n = 1)
@@ -183,7 +202,7 @@ for(j in 1:n_rep){
       #first five years: no credits/releases; positive additionality added to buffer pool
       if(sim_additionality[i, j] > 0) buffer_pool = buffer_pool + sim_additionality[i, j]
       sim_credit[i, j] = 0
-      if(j == 1) cat("Buffer at year", i, ": ", buffer_pool, "\n")
+      #cat("Buffer at year", i, ": ", buffer_pool, "\n")
     } else {
       #from sixth year on: get credits and anticipated releases
 
@@ -201,14 +220,14 @@ for(j in 1:n_rep){
       sim_credit[i, j] = sim_additionality[i, j] + sim_release[i, j]
       if(sim_credit[i, j] > 0){
         to_be_released = sim_credit[i, j]
-        if(j == 1) cat("credits at year ", i, ": ", to_be_released, "\n")
+        #cat("credits at year ", i, ": ", to_be_released, "\n")
         sim_benefit[i, j] = sim_credit[i, j] * filter(scc_extrap, year == year_i)$central
         k = i #kth year(s), for which we estimate anticipated release
-        while(to_be_released > 0){
+        while(to_be_released > 0 & k < H_rel){
           k = k + 1
           if(k > H) {
-            can_be_released = to_be_released
-            #after project ends, all remaining credits are released the next year
+            can_be_released = loss_pre
+            #after project ends, remaining credits are released at the counterfactual rate
           } else {
             max_release = ifelse(abar > 0, 0, -abar) #if a-bar is positive, maximum release is zero
             can_be_released = max(0, max_release - sim_release[k, j])
@@ -220,7 +239,7 @@ for(j in 1:n_rep){
           sim_release[k, j] = sim_release[k, j] + r_sched[i, k]
           #cat("actually released =", r_sched[i, k], ", total release now =", sim_release[k, j], ", left to release =", to_be_released, "\n")
         }
-        sim_damage[i, j] = sum(r_sched[i, (i + 1):(H + 1)] * filter(scc_extrap, year %in% (year_i + 1):(t0 + H))$central / ((1 + D) ^ (1:(H + 1 - i))))
+        sim_damage[i, j] = sum(r_sched[i, (i + 1):H_rel] * filter(scc_extrap, year %in% (year_i + 1):year_max)$central / ((1 + D) ^ (1:(year_max - year_i))))
         sim_ep[i, j] = (sim_benefit[i, j] - sim_damage[i, j]) / sim_benefit[i, j]
         #cat("Credit =", sim_credit[i, j], ", Benefit =", sim_benefit[i, j], ", Damage =", sim_damage[i, j], ", eP =", sim_ep[i, j], "\n")
       } else if(sim_credit[i, j] <= 0){
@@ -296,7 +315,7 @@ ggplot(as.data.frame(sim_release[1:H, ]) %>% mutate(t = row_number()) %>% pivot_
   geom_line(aes(x = t, y = val, col = rep), size = 0.5, show.legend = F) +
   geom_hline(yintercept = 0, size = 1, color = "black") +
   scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) + 
-  scale_y_continuous(name = "Credits (Mg CO2 e)") + 
+  scale_y_continuous(name = "Anticipated releases\n(Mg CO2 e)") + 
   theme_bw() +
   theme(axis.line = element_line(linewidth = 0.5),
         panel.grid.minor = element_blank(),
