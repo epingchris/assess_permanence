@@ -226,14 +226,14 @@ for(j in 1:n_rep){
         while(to_be_released > 0 & k < H_rel){
           k = k + 1
           if(k > H) {
-            can_be_released = loss_pre
+            max_release = loss_pre
             #after project ends, remaining credits are released at the counterfactual rate
           } else {
             max_release = ifelse(abar > 0, 0, -abar) #if a-bar is positive, maximum release is zero
-            can_be_released = max(0, max_release - sim_release[k, j])
           }
           #cat("at year", k, ", can be released =", max_release, "-", sim_release[k, j], "=", can_be_released, "\n")
           
+          can_be_released = max(0, max_release - sim_release[k, j])
           r_sched[i, k] = min(to_be_released, can_be_released)
           to_be_released = to_be_released - r_sched[i, k]
           sim_release[k, j] = sim_release[k, j] + r_sched[i, k]
