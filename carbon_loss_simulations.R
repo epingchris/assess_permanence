@@ -89,16 +89,14 @@ summ_flux = rbind(summariseSeries(flux_series_sim, "treatment_proj"),
                   summariseSeries(flux_series_sim, "control_proj"),
                   summariseSeries(flux_series_sim, "additionality"))
 
-#to discuss: do we use the mean carbon loss value from t-10 to t and update,
-#or do we use all the repeated carbon loss estimates from t0 to t and update?
-absloss_p_init = subset(summ_flux, var == "treatment_proj" & year >= t0 & series != "mean") %>%
-  mutate(val = val * (-1), var = NULL, series = NULL)
-absloss_c_init = subset(summ_flux, var == "control_proj" & year >= t0 & series != "mean") %>%
-  mutate(val = val * (-1), var = NULL, series = NULL)
-# absloss_p_init = subset(summ_flux, var == "treatment_proj" & year >= t0 - 10 & series == "mean") %>%
+# absloss_p_init = subset(summ_flux, var == "treatment_proj" & year >= t0 & series != "mean") %>%
 #   mutate(val = val * (-1), var = NULL, series = NULL)
-# absloss_c_init = subset(summ_flux, var == "control_proj" & year >= t0 - 10 & series == "mean") %>%
+# absloss_c_init = subset(summ_flux, var == "control_proj" & year >= t0 & series != "mean") %>%
 #   mutate(val = val * (-1), var = NULL, series = NULL)
+absloss_p_init = subset(summ_flux, var == "treatment_proj" & year >= t0 - 10 & series == "mean") %>%
+  mutate(val = val * (-1), var = NULL, series = NULL)
+absloss_c_init = subset(summ_flux, var == "control_proj" & year >= t0 - 10 & series == "mean") %>%
+  mutate(val = val * (-1), var = NULL, series = NULL)
 
 #function to generate sampled values from GMM-fitted distributions
 SampGMM = function(params, n){
