@@ -4,7 +4,7 @@ library(magrittr)
 library(mclust)
 file_path = "C:/Users/E-Ping Rau/OneDrive - University of Cambridge/carbon_release_pattern/"
 
-
+a = Sys.time()
 # SCC ----
 scc_new = read.csv(file = paste0(file_path, "scc_newpipeline.csv"))
 lm_scc = lm(log(central) ~ year, data = scc_new)
@@ -63,60 +63,71 @@ SampGMM = function(mclust_obj, n){
   return(samp_vec)
 }
 
-# 1. Load existing data for sites ----
-site = "WLT_VNCC_KNT" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
-load(file = paste0(file_path, site, ".Rdata"))
-site_name = switch(site,
-                   Gola = "Gola",
-                   WLT_VNCC_KNT = "KNT",
-                   CIF_Alto_Mayo = "Alto Mayo",
-                   VCS_1396 = "RPA",
-                   VCS_934 = "Mai Ndombe")
 
-# 2. Calculate carbon stock and flux ----
-flux_series_sim = mapply(function(x, y) makeFlux(project_series = x, leakage_series = y)$flux,
-                         x = agb_series_project_sim,
-                         y = vector("list", length = length(agb_series_project_sim)),
-                         SIMPLIFY = F)
+# 1. Calculate carbon flux for a portfolio ----
+sites = c("Gola_country", "WLT_VNCC_KNT", "CIF_Alto_Mayo", "VCS_1396", "VCS_934")
+summ_flux_list = vector("list", length(sites))
+absloss_p_init_list = vector("list", length(sites))
+absloss_c_init_list = vector("list", length(sites))
+absloss_p_fit_list = vector("list", length(sites))
+absloss_c_fit_list = vector("list", length(sites))
+loss_pre_vec =rep(NA, length(sites))
+t0_vec = rep(NA, length(sites))
 
-summ_flux = rbind(summariseSeries(flux_series_sim, "treatment_proj"),
-                  summariseSeries(flux_series_sim, "control_proj"),
-                  summariseSeries(flux_series_sim, "additionality"))
+for(site in sites){
+  i = which(sites %in% site)
+  load(file = paste0(file_path, site, ".Rdata")) #load data
+  t0_vec[i] = t0
+  
+  flux_series_sim = mapply(function(x, y) makeFlux(project_series = x, leakage_series = y)$flux,
+                           x = agb_series_project_sim,
+                           y = vector("list", length = length(agb_series_project_sim)),
+                           SIMPLIFY = F)
+  
+  summ_flux = rbind(summariseSeries(flux_series_sim, "treatment_proj"),
+                    summariseSeries(flux_series_sim, "control_proj"),
+                    summariseSeries(flux_series_sim, "additionality"))
+  
+  summ_flux_list[[i]] = summ_flux
+  
+  absloss_p_init = subset(summ_flux, var == "treatment_proj" & year >= t0 & series != "mean") %>%
+    mutate(val = val * (-1), var = NULL, series = NULL)
+  absloss_c_init = subset(summ_flux, var == "control_proj" & year >= t0 & series != "mean") %>%
+    mutate(val = val * (-1), var = NULL, series = NULL)
+  
+  absloss_p_init_list[[i]] = absloss_p_init
+  absloss_c_init_list[[i]] = absloss_c_init
+  
+  absloss_p_fit_list[[i]] = mclust::Mclust(absloss_p_init$val, 2)
+  absloss_c_fit_list[[i]] = mclust::Mclust(absloss_c_init$val, 2)
 
-absloss_p_init = subset(summ_flux, var == "treatment_proj" & year >= t0 & series != "mean") %>%
-  mutate(val = val * (-1), var = NULL, series = NULL)
-absloss_c_init = subset(summ_flux, var == "control_proj" & year >= t0 & series != "mean") %>%
-  mutate(val = val * (-1), var = NULL, series = NULL)
-
-absloss_p_fit = mclust::Mclust(absloss_p_init$val, 2)
-absloss_c_fit = mclust::Mclust(absloss_c_init$val, 2)
-
-#test project-counterfactual carbon loss correlation and its impact on a-bar estimation based on different methods
-#cor.test(absloss_p_init$val, absloss_c_init$val, alternative = "greater", method = "p")
-#highly significant for all except Alto Mayo where p-value is 0.06
-
-#pre-project counterfactual carbon loss distribution used as release rate after project ends
-absloss_c_pre = subset(summ_flux, var == "control_proj" & year < t0 & series == "mean" & val < 0) %>%
-  mutate(val = val * (-1), var = NULL, series = NULL)
-absloss_c_pre_fit = mclust::Mclust(absloss_c_pre$val, 2)
-samploss_c_pre = SampGMM(absloss_c_pre_fit$parameters, n = 1000)
-loss_pre = mean(samploss_c_pre)
+  absloss_c_pre = subset(summ_flux, var == "control_proj" & year < t0 & series == "mean" & val < 0) %>%
+    mutate(val = val * (-1), var = NULL, series = NULL)
+  absloss_c_pre_fit = mclust::Mclust(absloss_c_pre$val, 2)
+  samploss_c_pre = SampGMM(absloss_c_pre_fit, n = 1000)
+  loss_pre_vec[i] = mean(samploss_c_pre)
+}
+loss_pre = sum(loss_pre_vec)
+t0 = min(t0_vec)
+site = "portfolio"
 
 #calculate a-bar distribution
 abar_samp = rep(NA, 1000)
 
 a = Sys.time()
 for(i in 1:1000){
-  add_samp = SampGMM(absloss_c_fit$parameters, n = 1000) -
-    SampGMM(absloss_p_fit$parameters, n = 1000)
-  abar_samp[i] = quantile(add_samp, 0.05)
+  samp_additionality_df = mapply(function(x, y) {
+    SampGMM(x, n = 1000) - SampGMM(y, n = 1000)
+  }, x = absloss_c_fit_list, y = absloss_p_fit_list)
+  samp_additionality = apply(samp_additionality_df, 1, sum)
+  abar_samp[i] = quantile(samp_additionality, 0.05)
 }
 b = Sys.time()
 b - a
 
 ggplot(data = data.frame(var = "abar", val = abar_samp)) +
   geom_histogram(aes(x = val), fill = "gray", bins = 250) +
-  geom_freqpoly(data = data.frame(var = "add", val = add_samp), aes(x = val)) +
+  geom_freqpoly(data = data.frame(var = "add", val = samp_additionality), aes(x = val)) +
   geom_vline(xintercept = 0, lwd = 0.5, lty = "dashed") +
   geom_vline(xintercept = median(abar_samp), col = "red", lwd = 0.5) +
   scale_x_continuous(name = "Additionality (Mg CO2e)") + 
@@ -163,20 +174,36 @@ for(j in 1:n_rep){
     year_i = t0 + i - 1
     
     #get additionality: use ex post values in years where they are available, sample from fitted distributions otherwise
-    if(year_i <= max(absloss_p_init$year)) {
-      sim_p_loss[i, j] = mean(subset(absloss_p_init, year == year_i)$val)
-      sim_c_loss[i, j] = mean(subset(absloss_c_init, year == year_i)$val)
-
-      #calculate a-bar based on carbon loss distributions
-      absloss_p_fit = mclust::Mclust(subset(absloss_p_init, year <= year_i)$val, 2)
-      absloss_c_fit = mclust::Mclust(subset(absloss_c_init, year <= year_i)$val, 2)
+    if(year_i <= 2021) {
       
-      samp_additionality = SampGMM(absloss_c_fit$parameters, n = 1000) -
-        SampGMM(absloss_p_fit$parameters, n = 1000)
+      sim_p_loss[i, j] = sum(sapply(absloss_p_init_list, function(x) mean(subset(x, year == year_i)$val, na.rm = T)), na.rm = T)
+      sim_c_loss[i, j] = sum(sapply(absloss_c_init_list, function(x) mean(subset(x, year == year_i)$val, na.rm = T)), na.rm = T)
+      
+      #calculate a-bar based on carbon loss distributions
+      absloss_p_fit_list = lapply(absloss_p_init_list, function(x) {
+        x_sub = subset(x, year <= year_i & year >= t0)
+        if(length(x_sub$val) > 0) {
+          return(mclust::Mclust(x_sub$val, 2))
+        } else {
+          return(NULL)
+        }})
+
+      absloss_c_fit_list = lapply(absloss_c_init_list, function(x) {
+        x_sub = subset(x, year <= year_i & year >= t0)
+        if(length(x_sub$val) > 0) {
+          return(mclust::Mclust(x_sub$val, 2))
+        } else {
+          return(NULL)
+        }})
+      
+      samp_additionality_df = as.data.frame(mapply(function(x, y) {
+        SampGMM(x, n = 1000) - SampGMM(y, n = 1000)
+      }, absloss_c_fit_list, absloss_p_fit_list))
+      samp_additionality = apply(samp_additionality_df, 1, function(x) sum(x, na.rm = T))
       abar = quantile(samp_additionality, 0.05)
-    } else if(year_i > max(absloss_p_init$year)){
-      sim_p_loss[i, j] = SampGMM(absloss_p_fit$parameters, n = 1)
-      sim_c_loss[i, j] = SampGMM(absloss_c_fit$parameters, n = 1)
+    } else if(year_i > 2021) {
+      sim_p_loss[i, j] = sum(sapply(absloss_p_fit_list, function(x) SampGMM(x, n = 1)))
+      sim_c_loss[i, j] = sum(sapply(absloss_c_fit_list, function(x) SampGMM(x, n = 1)))
     }
     sim_additionality[i, j] = sim_c_loss[i, j] - sim_p_loss[i, j]
     sim_abar[i, j] = abar
@@ -188,7 +215,7 @@ for(j in 1:n_rep){
       #cat("Buffer at year", i, ": ", buffer_pool, "\n")
     } else {
       #from sixth year on: get credits and anticipated releases
-
+      
       #use buffer pool to fill anticipated releases first
       #only deduct from buffer pool at each year if there is space left for that year
       if(buffer_pool > 0) {
@@ -199,7 +226,7 @@ for(j in 1:n_rep){
         buffer_pool = buffer_pool - can_be_released
         #cat("total release now =", sim_release[i, j], ", left in buffer =", buffer_pool, "\n")
       }
-
+      
       sim_credit[i, j] = sim_additionality[i, j] + sim_release[i, j]
       if(sim_credit[i, j] > 0){
         to_be_released = sim_credit[i, j]
@@ -236,6 +263,7 @@ for(j in 1:n_rep){
 }
 b = Sys.time()
 b - a
+
 # 4. Visualise results ----
 SummariseSim = function(mat){
   df = mat %>%
@@ -381,5 +409,3 @@ ggplot(summary_cred, aes(x = year)) +
         axis.text.y = element_text(size = 18, angle = 45),
         plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
 ggsave(paste0(file_path, site, "_6i_sim_cred_rep.png"), width = 15, height = 10, unit = "cm")
-b = Sys.time()
-b - a
