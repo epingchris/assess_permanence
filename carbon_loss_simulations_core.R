@@ -1,34 +1,64 @@
 # 1a. Set parameters for numerical projects with exponential C loss distribution ----
-if(site == "expo") {
+if(type == "expo") {
   year_pres_obs = 2021 #actually no observed data; all are simulated
   t0 = 2023
   lambda_p = 1
   lambda_c = 1 / scale_c
   
-  absloss_p_exp = rexp(1000, lambda_p)
-  absloss_c_exp = rexp(1000, lambda_c)
+  absloss_p_samp = rexp(1000, lambda_p)
+  absloss_c_samp = rexp(1000, lambda_c)
   
-  #input that we need for the following steps: expost_p/c_loss, loss_postproj, add_samp, aomega_samp
-  expost_p_loss = absloss_p_exp
-  expost_c_loss = absloss_c_exp
+  #input that we need for the following steps: expost_p/c_loss, loss_postproj, aomega
+  expost_p_loss = absloss_p_samp
+  expost_c_loss = absloss_c_samp
   
   #post-project release rate:
   #double the counterfactual deforestation rate, which has now changed compared to before the project starts
-  loss_postproj = ifelse(use_aomega_theo,
-                         2 / lambda_c,
-                         mean(rexp(1000, lambda_c)) * 2)
+  #always use theoretical
+  loss_postproj = 2 / lambda_c
   
   add_samp = rexp(1000, lambda_c) - rexp(1000, lambda_p)
-  aomega_samp = quantile(add_samp, omega)
-  aomega_theo = 1 / lambda_p * log(omega * (lambda_p + lambda_c) / lambda_c)
+  aomega = ifelse(use_theo,
+                  1 / lambda_p * log(omega * (lambda_p + lambda_c) / lambda_c),
+                  quantile(add_samp, omega))
   
-  # 1b. Load data and set parameters for portfolio of five projects ----
-} else if(site == "portfolio") {
+  # 1b. Load data and set parameters for portfolios of real-life projects ----
+} else if(type == "expo_portfolio") {
+  year_pres_obs = 2021 #actually no observed data; all are simulated
+  t0 = 2023
+  
+  scale_c_vec = switch(expo_portfolio_type,
+                 "A" = c(1.5, 1.5, 1.5, 10),
+                 "B" = c(1.5, 1.5, 10, 10),
+                 "C" = c(1.5, 10, 10, 10))
+  lambda_p_vec = rep(1, length(scale_c_vec))
+  lambda_c_vec = 1 / scale_c_vec
+  
+  absloss_p_samp_list = lapply(lambda_p_vec, function(x) rexp(1000, x))
+  absloss_c_samp_list = lapply(lambda_c_vec, function(x) rexp(1000, x))
+  
+  #input that we need for the following steps: expost_p/c_loss, loss_postproj, add_samp, aomega
+  expost_p_loss = apply(as.data.frame(absloss_p_samp_list), 1, sum)
+  expost_c_loss = apply(as.data.frame(absloss_c_samp_list), 1, sum)
+  
+  #post-project release rate:
+  #double the counterfactual deforestation rate, which has now changed compared to before the project starts
+  #always use theoretical
+  loss_postproj = sum(2 / lambda_c_vec)
+  
+  #a-omega: use sampling approach because no analytical a-omega exists yet for portfolio
+  add_samp = mapply(function(x, y) x - y,
+                    x = absloss_c_samp_list, y = absloss_p_samp_list) %>%
+    apply(1, sum)
+  aomega = quantile(add_samp, omega)
+  
+} else if(type == "portfolio") {
   year_pres_obs = 2021
   
   sites = switch(portfolio_type,
                  "all" = c("Gola_country", "WLT_VNCC_KNT", "CIF_Alto_Mayo", "VCS_1396", "VCS_934"),
-                 "good" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396"))
+                 "good" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396"),
+                 "four" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396", "VCS_934"))
   
   summ_flux = vector("list", length(sites))
   absloss_p_init_list = vector("list", length(sites))
@@ -89,7 +119,7 @@ if(site == "expo") {
   absloss_c_fit_list = lapply(absloss_p_init_list, function(x) FitGMM(x$val))
   absloss_c_samp_list = lapply(absloss_c_fit_list, function(x) SampGMM(x, n = 1000))
   
-  #input that we need for the following steps: expost_p/c_loss, loss_postproj, add_samp, aomega_samp
+  #input that we need for the following steps: expost_p/c_loss, loss_postproj, aomega
   expost_p_loss = absloss_p_init_yearsum$val
   expost_c_loss = absloss_c_init_yearsum$val
   
@@ -105,11 +135,11 @@ if(site == "expo") {
                     y = absloss_p_samp_list) %>%
     as.data.frame() %>%
     apply(1, function(x) sum(x, na.rm = T))
-  aomega_samp = quantile(add_samp, omega)
+  aomega = quantile(add_samp, omega)
   
   # 1c. Load data and set parameters for individual projects ----
-} else {
-  load(file = paste0(file_path, site, ".Rdata"))
+} else if(type == "project") {
+  load(file = paste0(file_path, project_site, ".Rdata"))
   
   flux_series_sim = mapply(function(x, y) makeFlux(project_series = x, leakage_series = y)$flux,
                            x = agb_series_project_sim,
@@ -140,7 +170,7 @@ if(site == "expo") {
   absloss_p_fit = FitGMM(absloss_p_init$val)
   absloss_c_fit = FitGMM(absloss_c_init$val)
   
-  #input that we need for the following steps: expost_p/c_loss, loss_postproj, add_samp, aomega_samp
+  #input that we need for the following steps: expost_p/c_loss, loss_postproj, aomega
   expost_p_loss = absloss_p_init_comb$val
   expost_c_loss = absloss_c_init_comb$val
   
@@ -149,23 +179,8 @@ if(site == "expo") {
   loss_postproj = mean(SampGMM(absloss_c_fit, n = 1000)) * 2
   
   add_samp = SampGMM(absloss_c_fit, n = 1000) - SampGMM(absloss_p_fit, n = 1000)
-  aomega_samp = quantile(add_samp, omega)
+  aomega = quantile(add_samp, omega)
 }
-
-
-#set site name used for file saving
-site_name = switch(site,
-                   "Gola" = "Gola",
-                   "WLT_VNCC_KNT" = "KNT",
-                   "CIF_Alto_Mayo" = "Alto_Mayo",
-                   "VCS_1396" = "RPA",
-                   "VCS_934" = "Mai_Ndombe",
-                   "portfolio" = paste0("portfolio_", portfolio_type),
-                   "expo" = paste0(ifelse(use_aomega_theo,
-                                          "theoretical_figures_analytical_aomega/",
-                                          "theoretical_figures_sampled_aomega/"),
-                                   "expo_", gsub("\\.", "_", as.character(scale_c)),
-                                   ifelse(use_aomega_theo, "_theo", "")))
 
 
 # 2. Perform simulations ----
@@ -198,9 +213,13 @@ for(j in 1:n_rep){
       sim_c_loss[i, j] = expost_c_loss[i]
       
       #calculate a-omega based on carbon loss distributions
-      if(site == "expo") {
+      if(type == "expo") {
         samp_additionality = rexp(1000, lambda_c) - rexp(1000, lambda_p)
-      } else if(site == "portfolio") {
+      } else if(type == "expo_portfolio") {
+        samp_additionality = mapply(function(x, y) rexp(1000, x) - rexp(1000, y),
+                                    x = lambda_c_vec, y = lambda_p_vec) %>%
+          apply(1, sum)
+      } else if(type == "portfolio") {
         absloss_p_fit_list = lapply(absloss_p_init_list, function(x) {
           FitGMM(subset(x, year <= year_i & year >= t0)$val)})
         absloss_p_samp_list = lapply(absloss_p_fit_list, function(x) SampGMM(x, n = 1000))
@@ -214,29 +233,26 @@ for(j in 1:n_rep){
                                     y = absloss_p_samp_list) %>%
           as.data.frame() %>%
           apply(1, function(x) sum(x, na.rm = T))
-      } else {
+      } else if(type == "project") {
         absloss_p_fit = FitGMM(subset(absloss_p_init, year <= year_i)$val)
         absloss_c_fit = FitGMM(subset(absloss_c_init, year <= year_i)$val)
         samp_additionality = SampGMM(absloss_c_fit, n = 1000) - SampGMM(absloss_p_fit, n = 1000)
       }
-      if(site == "expo" & use_aomega_theo) {
-        aomega = aomega_theo
-      } else {
-        aomega = quantile(samp_additionality, omega)
-      }
+      aomega = quantile(samp_additionality, omega)
+      #if(j < 5) cat(year_i, aomega, "\n")
       
       #get carbon loss values: sample from fitted distributions when ex post values not available
     } else {
-      if(site == "expo") {
+      if(type == "expo") {
         sim_p_loss[i, j] = rexp(1, lambda_p)
         sim_c_loss[i, j] = rexp(1, lambda_c)
-        
-        samp_additionality = rexp(1000, lambda_c) - rexp(1000, lambda_p)
-        aomega = quantile(samp_additionality, omega)
-      } else if(site == "portfolio") {
+      } else if(type == "expo_portfolio") {
+        sim_p_loss[i, j] = sum(sapply(lambda_p_vec, function(x) rexp(1, x)))
+        sim_c_loss[i, j] = sum(sapply(lambda_c_vec, function(x) rexp(1, x)))
+      } else if(type == "portfolio") {
         sim_p_loss[i, j] = sum(sapply(absloss_p_fit_list, function(x) SampGMM(x, n = 1)))
         sim_c_loss[i, j] = sum(sapply(absloss_c_fit_list, function(x) SampGMM(x, n = 1)))
-      } else {
+      } else if(type == "project") {
         sim_p_loss[i, j] = SampGMM(absloss_p_fit, n = 1)
         sim_c_loss[i, j] = SampGMM(absloss_c_fit, n = 1)
       }
@@ -257,10 +273,10 @@ for(j in 1:n_rep){
       if(buffer_pool > 0) {
         max_release = ifelse(aomega > 0, 0, -aomega) #if a-omega is positive, maximum release is zero
         can_be_released = min(max(0, max_release - sim_release[i, j]), buffer_pool)
-        #cat("at year", i, ", can be released from buffer =", max_release, "-", sim_release[i, j], "=", can_be_released, "\n")
+        #if(j < 5) cat("at year", i, ", can be released from buffer =", max_release, "-", sim_release[i, j], "=", can_be_released, "\n")
         sim_release[i, j] = sim_release[i, j] + can_be_released
         buffer_pool = buffer_pool - can_be_released
-        #cat("total release now =", sim_release[i, j], ", left in buffer =", buffer_pool, "\n")
+        #if(j < 5) cat("total release now =", sim_release[i, j], ", left in buffer =", buffer_pool, "\n")
       }
       
       sim_credit[i, j] = sim_additionality[i, j] + sim_release[i, j]
@@ -299,17 +315,39 @@ for(j in 1:n_rep){
 b = Sys.time()
 b - a
 
+
 # 3. Summarise results ----
 
+SummariseSim = function(mat){
+  df = mat %>%
+    as.data.frame() %>%
+    reframe(
+      year = row_number(),
+      p05 = apply(., 1, function(x) quantile(x, 0.05, na.rm = T)),
+      p25 = apply(., 1, function(x) quantile(x, 0.25, na.rm = T)),
+      median = apply(., 1, median, na.rm = T),
+      p75 = apply(., 1, function(x) quantile(x, 0.75, na.rm = T)),
+      p95 = apply(., 1, function(x) quantile(x, 0.95, na.rm = T)),
+      mean = apply(., 1, mean, na.rm = T),
+      sd = apply(., 1, function(x) sd(x, na.rm = T)),
+      ci_margin = qt(0.975, df = n_rep - 1) * sd / sqrt(n_rep),
+      ci_low = mean - ci_margin,
+      ci_high = mean + ci_margin
+    )
+  return(df)
+}
+
 #view evolution of a particular iteration
-j = 1
-snapshot = data.frame(additionality = sim_additionality[1:50, j],
-                      aomega = sim_aomega[1:50, j],
-                      release = sim_release[1:50, j],
-                      credit = sim_credit[1:50, j],
-                      rsched = apply(sim_r_sched[[j]], 1, sum),
-                      buffer = sim_buffer[1:50, j])
-# View(snapshot)
+if(view_snapshot) {
+  j = 1
+  snapshot = data.frame(additionality = sim_additionality[1:50, j],
+                        aomega = sim_aomega[1:50, j],
+                        release = sim_release[1:50, j],
+                        credit = sim_credit[1:50, j],
+                        rsched = apply(sim_r_sched[[j]], 1, sum),
+                        buffer = sim_buffer[1:50, j])
+  View(snapshot)
+}
 
 sim_credit_long = sim_credit %>%
   as.data.frame() %>%
@@ -321,8 +359,12 @@ sim_release_long = sim_release %>%
   mutate(t = row_number()) %>%
   pivot_longer(V1:V100, names_to = "rep", values_to = "val")
 
+summ_additionality = SummariseSim(sim_additionality)
 summ_credit = SummariseSim(sim_credit)
 summ_release = SummariseSim(sim_release[1:H, ])
+summ_buffer = SummariseSim(sim_buffer)
+summ_aomega = SummariseSim(sim_aomega)
+
 summ_ep = sim_ep %>%
   replace(., . == 0, NA) %>%
   SummariseSim() %>%
@@ -335,8 +377,60 @@ summ_cred = sim_ep %>%
     cred = apply(., 1, function(x) length(which(x > 0)) / n_rep))
 summ_cred$cred[1:bp] = NA
 
-if((site != "expo") & (site != "portfolio")) {
-  save(site, site_name, t0, scc_extrap,
+
+#4. Set file prefixes and save results ----
+
+#set file prefixes
+if(type == "project") {
+  subfolder = "projects/"
+  file_pref = paste0(subfolder, switch(project_site,
+                                       "Gola_country" = "Gola",
+                                       "WLT_VNCC_KNT" = "KNT",
+                                       "CIF_Alto_Mayo" = "Alto_Mayo",
+                                       "VCS_1396" = "RPA",
+                                       "VCS_934" = "Mai_Ndombe"))
+} else {
+  if(type == "expo" & bp_sensitivity) {
+    subfolder = "bp_sensitivity/"
+    file_pref = paste0(sub_folder, "expo_", expo_text, "_bp_", bp)
+  } else {
+    subfolder = ifelse(use_theo,
+                       "theoretical_figures_analytical_aomega/",
+                       "theoretical_figures_sampled_aomega/")
+    file_pref = switch(type,
+                       "portfolio" = paste0("portfolio_", portfolio_type),
+                       "expo_portfolio" = paste0("expo_portfolio_", expo_portfolio_type),
+                       "expo" = paste0(subfolder, "expo_", gsub("\\.", "_", as.character(scale_c)),
+                                       ifelse(use_theo, "_theo", "")))
+  }
+}
+
+#save results
+if(type == "expo") {
+  if(bp_sensitivity) {
+    save(scale_c, bp,
+         file_pref, t0, scc_extrap,
+         sim_credit_long, sim_release_long,
+         summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+  } else {
+    save(scale_c,
+         file_pref, t0, scc_extrap,
+         sim_credit_long, sim_release_long,
+         summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+  }
+} else if(type == "expo_portfolio") {
+  save(expo_portfolio_type, scale_c_vec,
+       file_pref, t0, scc_extrap,
        sim_credit_long, sim_release_long,
-       summ_flux, summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, site_name, "_simulations.Rdata"))
+       summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+} else if(type == "portfolio") {
+  save(portfolio_type, sites, summ_flux,
+       file_pref, t0, scc_extrap,
+       sim_credit_long, sim_release_long,
+       summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+} else if(type == "project") {
+  save(project_site, summ_flux,
+       file_pref, t0, scc_extrap,
+       sim_credit_long, sim_release_long,
+       summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
 }
