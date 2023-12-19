@@ -15,7 +15,7 @@ if(type == "expo") {
   #post-project release rate:
   #double the counterfactual deforestation rate, which has now changed compared to before the project starts
   #always use theoretical
-  loss_postproj = 2 / lambda_c
+  loss_postproj = rate_postproj / lambda_c
   
   add_samp = rexp(1000, lambda_c) - rexp(1000, lambda_p)
   aomega = ifelse(use_theo,
@@ -44,7 +44,7 @@ if(type == "expo") {
   #post-project release rate:
   #double the counterfactual deforestation rate, which has now changed compared to before the project starts
   #always use theoretical
-  loss_postproj = sum(2 / lambda_c_vec)
+  loss_postproj = sum(rate_postproj / lambda_c_vec)
   
   #a-omega: use sampling approach because no analytical a-omega exists yet for portfolio
   add_samp = mapply(function(x, y) x - y,
@@ -128,7 +128,7 @@ if(type == "expo") {
   loss_postproj = absloss_c_fit_list %>%
     sapply(function(x) SampGMM(x, n = 1000)) %>%
     apply(1, sum) %>%
-    mean() * 2
+    mean() * rate_postproj
   
   add_samp = mapply(function(x, y) x - y,
                     x = absloss_c_samp_list,
@@ -176,7 +176,7 @@ if(type == "expo") {
   
   #post-project release rate:
   #double the mean of counterfactual carbon loss distribution
-  loss_postproj = mean(SampGMM(absloss_c_fit, n = 1000)) * 2
+  loss_postproj = mean(SampGMM(absloss_c_fit, n = 1000)) * rate_postproj
   
   add_samp = SampGMM(absloss_c_fit, n = 1000) - SampGMM(absloss_p_fit, n = 1000)
   aomega = quantile(add_samp, omega)
@@ -380,8 +380,35 @@ summ_cred$cred[1:bp] = NA
 
 #4. Set file prefixes and save results ----
 
-#set file prefixes
-if(type == "project") {
+if(type == "expo") {
+  expo_text = ifelse(exists("scale_c"), gsub("\\.", "_", as.character(scale_c)), "")  
+  if(bp_sensitivity) {
+    subfolder = "bp_sensitivity/"
+    file_pref = paste0(subfolder, "expo_", expo_text, "_bp_", bp)
+    save(scale_c, bp,
+         file_pref, t0, scc_extrap,
+         sim_credit_long, sim_release_long,
+         summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+    
+  } else if(ppr_sensitivity) {
+    subfolder = "ppr_sensitivity/"
+    file_pref = paste0(subfolder, "expo_", expo_text, "_ppr_", gsub("\\.", "_", as.character(rate_postproj)))
+    save(scale_c, rate_postproj,
+         file_pref, t0, scc_extrap,
+         sim_credit_long, sim_release_long,
+         summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+    
+  } else {
+    subfolder = ifelse(use_theo,
+                       "theoretical_figures_analytical_aomega/",
+                       "theoretical_figures_sampled_aomega/")
+    file_pref = paste0(subfolder, "expo_", expo_text, ifelse(use_theo, "_theo", ""))
+    save(scale_c,
+         file_pref, t0, scc_extrap,
+         sim_credit_long, sim_release_long,
+         summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+  }
+} else if(type == project){
   subfolder = "projects/"
   file_pref = paste0(subfolder, switch(project_site,
                                        "Gola_country" = "Gola",
@@ -389,47 +416,23 @@ if(type == "project") {
                                        "CIF_Alto_Mayo" = "Alto_Mayo",
                                        "VCS_1396" = "RPA",
                                        "VCS_934" = "Mai_Ndombe"))
-} else {
-  if(type == "expo" & bp_sensitivity) {
-    subfolder = "bp_sensitivity/"
-    file_pref = paste0(sub_folder, "expo_", expo_text, "_bp_", bp)
-  } else {
-    subfolder = ifelse(use_theo,
-                       "theoretical_figures_analytical_aomega/",
-                       "theoretical_figures_sampled_aomega/")
-    file_pref = switch(type,
-                       "portfolio" = paste0("portfolio_", portfolio_type),
-                       "expo_portfolio" = paste0("expo_portfolio_", expo_portfolio_type),
-                       "expo" = paste0(subfolder, "expo_", gsub("\\.", "_", as.character(scale_c)),
-                                       ifelse(use_theo, "_theo", "")))
-  }
-}
-
-#save results
-if(type == "expo") {
-  if(bp_sensitivity) {
-    save(scale_c, bp,
-         file_pref, t0, scc_extrap,
-         sim_credit_long, sim_release_long,
-         summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
-  } else {
-    save(scale_c,
-         file_pref, t0, scc_extrap,
-         sim_credit_long, sim_release_long,
-         summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
-  }
-} else if(type == "expo_portfolio") {
-  save(expo_portfolio_type, scale_c_vec,
+  save(project_site, summ_flux,
        file_pref, t0, scc_extrap,
        sim_credit_long, sim_release_long,
        summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+  
 } else if(type == "portfolio") {
+  subfolder = ""
+  file_pref = paste0("portfolio_", portfolio_type)
   save(portfolio_type, sites, summ_flux,
        file_pref, t0, scc_extrap,
        sim_credit_long, sim_release_long,
        summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
-} else if(type == "project") {
-  save(project_site, summ_flux,
+  
+} else if(type == "expo_portfolio") {
+  subfolder = ""
+  file_pref = paste0("expo_portfolio_", expo_portfolio_type)
+  save(expo_portfolio_type, scale_c_vec,
        file_pref, t0, scc_extrap,
        sim_credit_long, sim_release_long,
        summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
