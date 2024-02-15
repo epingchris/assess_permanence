@@ -195,11 +195,11 @@ sim_aomega = matrix(0, H, n_rep)
 sim_release = matrix(0, H_rel, n_rep)
 sim_damage = matrix(0, H, n_rep)
 sim_ep = matrix(0, H, n_rep)
+sim_pact = matrix(0, H, n_rep)
 sim_credibility = matrix(1, H, n_rep)
 sim_buffer = matrix(0, H, n_rep)
 sim_r_sched = vector("list", n_rep)
 
-a = Sys.time()
 for(j in 1:n_rep){
   r_sched = matrix(0, H, H_rel) #release schedule
   buffer_pool = 0
@@ -307,13 +307,12 @@ for(j in 1:n_rep){
         sim_ep[i, j] = 0
         sim_credibility[i, j] = 0
       }
+      sim_pact[i, j]  = sim_credit[i, j] * sim_ep[i, j]
     }
     sim_buffer[i, j] = buffer_pool
   }
   sim_r_sched[[j]] = r_sched
 }
-b = Sys.time()
-b - a
 
 
 # 3. Summarise results ----
@@ -344,6 +343,7 @@ if(view_snapshot) {
                         aomega = sim_aomega[1:50, j],
                         release = sim_release[1:50, j],
                         credit = sim_credit[1:50, j],
+                        PACT = sim_pact[1:50, j],
                         rsched = apply(sim_r_sched[[j]], 1, sum),
                         buffer = sim_buffer[1:50, j])
   View(snapshot)
@@ -361,6 +361,7 @@ sim_release_long = sim_release %>%
 
 summ_additionality = SummariseSim(sim_additionality)
 summ_credit = SummariseSim(sim_credit)
+summ_pact = SummariseSim(sim_pact)
 summ_release = SummariseSim(sim_release[1:H, ])
 summ_buffer = SummariseSim(sim_buffer)
 summ_aomega = SummariseSim(sim_aomega)
@@ -388,7 +389,7 @@ if(type == "expo") {
     save(scale_c, bp,
          file_pref, t0, scc_extrap,
          sim_credit_long, sim_release_long,
-         summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+         summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
     
   } else if(ppr_sensitivity) {
     subfolder = "ppr_sensitivity/"
@@ -396,7 +397,15 @@ if(type == "expo") {
     save(scale_c, rate_postproj,
          file_pref, t0, scc_extrap,
          sim_credit_long, sim_release_long,
-         summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+         summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+    
+  } else if(H_sensitivity) {
+    subfolder = "H_sensitivity/"
+    file_pref = paste0(subfolder, "expo_", expo_text, "_H_", H)
+    save(scale_c, H,
+         file_pref, t0, scc_extrap,
+         sim_credit_long, sim_release_long,
+         summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
     
   } else {
     subfolder = ifelse(use_theo,
@@ -406,9 +415,9 @@ if(type == "expo") {
     save(scale_c,
          file_pref, t0, scc_extrap,
          sim_credit_long, sim_release_long,
-         summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+         summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
   }
-} else if(type == project){
+} else if(type == "project"){
   subfolder = "projects/"
   file_pref = paste0(subfolder, switch(project_site,
                                        "Gola_country" = "Gola",
@@ -419,7 +428,7 @@ if(type == "expo") {
   save(project_site, summ_flux,
        file_pref, t0, scc_extrap,
        sim_credit_long, sim_release_long,
-       summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+       summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
   
 } else if(type == "portfolio") {
   subfolder = ""
@@ -427,7 +436,7 @@ if(type == "expo") {
   save(portfolio_type, sites, summ_flux,
        file_pref, t0, scc_extrap,
        sim_credit_long, sim_release_long,
-       summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+       summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
   
 } else if(type == "expo_portfolio") {
   subfolder = ""
@@ -435,5 +444,5 @@ if(type == "expo") {
   save(expo_portfolio_type, scale_c_vec,
        file_pref, t0, scc_extrap,
        sim_credit_long, sim_release_long,
-       summ_credit, summ_release, summ_ep, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+       summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
 }

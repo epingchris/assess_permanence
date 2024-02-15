@@ -3,16 +3,16 @@ library(tidyverse)
 library(ggtext)
 library(magrittr)
 library(mclust)
-file_path = "C:/Users/epr26/Documents/carbon_release_pattern/"
-
+#file_path = "C:/Users/epr26/Documents/carbon_release_pattern/"
+file_path = "C:/Users/epr26/OneDrive - University of Cambridge/carbon_release_pattern/"
 
 # Simulation settings ----
 
 #select types (single sites, portfolio or simulated ones)
-type = "expo" #project, expo, portfolio
+type = "portfolio" #project, expo, portfolio, expo_portfolio
 scale_c = 10  #1.5, 2, 5, 10
-expo_portfolio_type = "A" #A, B, C
-portfolio_type = "good" #all, good
+expo_portfolio_type = "C" #A, B, C
+portfolio_type = "four" #all, good, four
 project_site = "VCS_934" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
 use_theo = T #T, F
 save_type = "pdf" #png, pdf
@@ -244,12 +244,14 @@ ggplot(summ_ep, aes(x = year)) +
 ggsave(paste0(file_path, file_pref, "_6_sim_ep_rep.", save_type), width = 15, height = 10, unit = "cm")
 
 
-## Figure 7. Credibility time series ----
-ggplot(summ_cred, aes(x = year)) +
-  geom_line(aes(y = cred), size = 1) +
+## Figure 7. Failure risk time series ----
+summ_risk = summ_cred %>%
+  mutate(risk = 1 - cred)
+ggplot(summ_risk, aes(x = year)) +
+  geom_line(aes(y = risk), size = 1) +
   scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) + 
-  scale_y_continuous(name = "Credibility", limits = c(0.5, 1)) + 
-  geom_hline(yintercept = 0.95, color = "red", lty = "dashed", size = 0.5) +
+  scale_y_continuous(name = "Failure risk", limits = c(0, 0.5)) + 
+  geom_hline(yintercept = 0.05, color = "red", lty = "dashed", size = 0.5) +
   geom_vline(xintercept = case_when(type != "expo" ~ year_pres_obs - t0 + 1, .default = NULL), lty = "dotted") +
   theme_bw() +
   theme(axis.line = element_line(linewidth = 0.5),
@@ -258,17 +260,23 @@ ggplot(summ_cred, aes(x = year)) +
         axis.text.x = element_text(size = 18, vjust = 0.5),
         axis.text.y = element_text(size = 18, angle = 45),
         plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
-ggsave(paste0(file_path, file_pref, "_7_sim_cred_rep.", save_type), width = 15, height = 10, unit = "cm")
+ggsave(paste0(file_path, file_pref, "_7_sim_risk_rep.", save_type), width = 15, height = 10, unit = "cm")
 
 
 # Sensitivity of simulation results to 1/lambda_c ----
-lc_sensitiviy = F
+lc_sensitivity = T
+bp_sensitivity = F
+ppr_sensitivity = F
+H_sensitivity = F
 
-if(lc_sensitiviy) {
-  scale_c_vec = c(seq(1.1, 5, by = 0.1), seq(6, 15, by = 1))
+save_type = "png"
+
+if(lc_sensitivity) {
+  scale_c_vec = c(seq(1, 10, by = 0.1))
   
   mean_credit = matrix(NA, n_rep, length(scale_c_vec))
   max_EP = matrix(NA, n_rep, length(scale_c_vec))
+  mean_pact = matrix(NA, n_rep, length(scale_c_vec))
   mean_cred = matrix(NA, n_rep, length(scale_c_vec))
   
   for(c_i in 1:length(scale_c_vec)){
@@ -281,6 +289,9 @@ if(lc_sensitiviy) {
     #relationship between 1 / lambda_c and max EP from all years
     max_EP[, c_i] = apply(sim_ep, 2, max)
     
+    #relationship between 1 / lambda_c and mean of [median of credits] from all years
+    mean_pact[, c_i] = apply(sim_pact, 2, sum) / (H - bp)
+
     #relationship between 1 / lambda_c and credibility (proportion of years without credibility incident)
     mean_cred[, c_i] = apply(sim_ep[-c(1:bp), ], 2, function(x) length(which(x > 0)) / (H - bp))
   }
@@ -305,10 +316,11 @@ if(lc_sensitiviy) {
   ## Figure 8.
   data_credit = SummariseAcrossTests(mean_credit, scale_c_vec)
   ggplot(data = data_credit, aes(x = var)) +
-    geom_ribbon(aes(ymin = val_low, ymax = val_high), fill = "lightgray") +
-    geom_line(aes(y = mean), size = 1) +
-    scale_x_continuous(name = expression(1 / lambda[c])) + 
-    scale_y_continuous(name = "Mean credits") + 
+    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
+    geom_line(aes(y = mean)) +
+    scale_x_continuous(name = "Drawdown rate") + 
+    #    scale_y_continuous(name = expression("Credits (Mg CO"[2]*" e)")) + 
+    scale_y_continuous(name = "Credits") + 
     theme_bw() +
     theme(axis.line = element_line(linewidth = 0.5),
           panel.grid.minor = element_blank(),
@@ -317,13 +329,29 @@ if(lc_sensitiviy) {
           axis.text.y = element_text(size = 18, angle = 45),
           plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
   ggsave(paste0(file_path, file_pref, "expo_1_lc_vs_mean_credit.", save_type), width = 15, height = 10, unit = "cm")
+
+  data_pact = SummariseAcrossTests(mean_pact, scale_c_vec)
+  ggplot(data = data_pact, aes(x = var)) +
+    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
+    geom_line(aes(y = mean)) +
+    scale_x_continuous(name = "Drawdown rate") + 
+#    scale_y_continuous(name = expression("Credits (Mg CO"[2]*" e)")) + 
+    scale_y_continuous(name = "Credits") + 
+    theme_bw() +
+    theme(axis.line = element_line(linewidth = 0.5),
+          panel.grid.minor = element_blank(),
+          axis.title = element_text(size = 22),
+          axis.text.x = element_text(size = 18, vjust = 0.5),
+          axis.text.y = element_text(size = 18, angle = 45),
+          plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
+  ggsave(paste0(file_path, file_pref, "expo_1a_lc_vs_mean_pact.", save_type), width = 15, height = 10, unit = "cm")
   
   data_max_EP = SummariseAcrossTests(max_EP, scale_c_vec)
   ggplot(data = data_max_EP, aes(x = var)) +
-    geom_ribbon(aes(ymin = val_low, ymax = val_high), fill = "lightgray") +
-    geom_line(aes(y = mean), size = 1) +
-    scale_x_continuous(name = expression(1 / lambda[c])) + 
-    scale_y_continuous(name = "Maximum EP") + 
+    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
+    geom_line(aes(y = mean)) +
+    scale_x_continuous(name = "Drawdown rate") + 
+    scale_y_continuous(name = "EP") + 
     theme_bw() +
     theme(axis.line = element_line(linewidth = 0.5),
           panel.grid.minor = element_blank(),
@@ -334,28 +362,17 @@ if(lc_sensitiviy) {
   ggsave(paste0(file_path, file_pref, "expo_2_lc_vs_max_EP.", save_type), width = 15, height = 10, unit = "cm")
   
   data_mean_cred = SummariseAcrossTests(mean_cred, scale_c_vec)
-  ggplot(data = data_mean_cred, aes(x = var)) +
-    geom_ribbon(aes(ymin = val_low, ymax = val_high), fill = "lightgray") +
-    geom_line(aes(y = mean), size = 1) +
-    geom_hline(yintercept = 0.95, col = "red", lty = "dashed", size = 0.5) +
-    scale_x_continuous(name = expression(1 / lambda[c])) + 
-    scale_y_continuous(name = "Mean credibility", limits = c(0.75, 1)) + 
-    theme_bw() +
-    theme(axis.line = element_line(linewidth = 0.5),
-          panel.grid.minor = element_blank(),
-          axis.title = element_text(size = 22),
-          axis.text.x = element_text(size = 18, vjust = 0.5),
-          axis.text.y = element_text(size = 18, angle = 45),
-          plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
-  ggsave(paste0(file_path, file_pref, "expo_3a_lc_vs_no_cred.", save_type), width = 15, height = 10, unit = "cm")
   
-  data_mean_cred = SummariseAcrossTests(mean_cred, scale_c_vec)
-  ggplot(data = data_mean_cred, aes(x = var)) +
-    geom_ribbon(aes(ymin = val_low, ymax = val_high), fill = "lightgray") +
-    geom_line(aes(y = mean), size = 1) +
-    geom_hline(yintercept = 0.95, col = "red", lty = "dashed", size = 0.5) +
-    scale_x_continuous(name = expression(1 / lambda[c]), limits = c(1, 2)) + 
-    scale_y_continuous(name = "Mean credibility", limits = c(0.75, 1)) + 
+  data_risk = data_mean_cred %>%
+    mutate(ci_low = 1 - ci_low, ci_high = 1 - ci_high, mean = 1 - mean)
+  
+  
+  ggplot(data = data_risk, aes(x = var)) +
+    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
+    geom_line(aes(y = mean)) +
+    geom_hline(yintercept = 0.05, col = "red", lty = "dashed", size = 0.5) +
+    scale_x_continuous(name = "Drawdown rate", limits = c(1, 5), breaks = seq(1, 5, by = 1)) + 
+    scale_y_continuous(name = "Failure risk", limits = c(0, 0.1)) + 
     theme_bw() +
     theme(axis.line = element_line(linewidth = 0.5),
           panel.grid.minor = element_blank(),
@@ -363,27 +380,50 @@ if(lc_sensitiviy) {
           axis.text.x = element_text(size = 18, vjust = 0.5),
           axis.text.y = element_text(size = 18, angle = 45),
           plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
-  ggsave(paste0(file_path, file_pref, "expo_3b_lc_vs_no_cred_short.", save_type), width = 15, height = 10, unit = "cm")
+  ggsave(paste0(file_path, file_pref, "expo_3a_lc_vs_risk.", save_type), width = 15, height = 10, unit = "cm")
+  
+  ggplot(data = data_risk, aes(x = var)) +
+    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
+    geom_line(aes(y = mean)) +
+    geom_hline(yintercept = 0.05, col = "red", lty = "dashed", size = 0.5) +
+    scale_x_continuous(name = "Drawdown rate", limits = c(1, 2), breaks = seq(1, 2, by = 0.1)) + 
+    scale_y_continuous(name = "Failure risk", limits = c(0, 0.1)) + 
+    theme_bw() +
+    theme(axis.line = element_line(linewidth = 0.5),
+          panel.grid.minor = element_blank(),
+          axis.title = element_text(size = 22),
+          axis.text.x = element_text(size = 18, vjust = 0.5, angle = 45),
+          axis.text.y = element_text(size = 18, angle = 45),
+          plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
+  ggsave(paste0(file_path, file_pref, "expo_3b_lc_vs_risk_short.", save_type), width = 15, height = 10, unit = "cm")
 }
 
 
-# Sensitivity to buffer period length ----
+# Sensitivity to warm-up period length ----
+lc_sensitivity = F
 bp_sensitivity = T
+ppr_sensitivity = F
+H_sensitivity = F
+
+n_rep = 1000
+
+a = Sys.time()
 
 if(bp_sensitivity) {
-  scale_c_vec = seq(1.1, 1.7, by = 0.05)
+  scale_c_vec = c(1.1, 1.3, 1.5, 1.7)
   bp_vec = seq(1, 20, by = 1)
-  min_bp_needed = rep(NA, length(scale_c_vec))
+  list_cred = vector("list", length(scale_c_vec))
+  list_summ_cred = vector("list", length(scale_c_vec))
   
   for(c_i in 1:length(scale_c_vec)){
     scale_c = scale_c_vec[c_i]
     
-    plot_bp = ifelse(scale_c %in% seq(1.1, 1.7, by = 1), T, F)
+#    plot_bp = ifelse(scale_c %in% seq(1.1, 1.7, by = 1), T, F)
     
     mean_credit = matrix(NA, n_rep, length(bp_vec))
     max_EP = matrix(NA, n_rep, length(bp_vec))
     final_EP = matrix(NA, n_rep, length(bp_vec))
-    mean_cred = matrix(NA, n_rep, length(bp_vec))
+    cred = matrix(NA, n_rep, length(bp_vec))
     
     for(bp_i in 1:length(bp_vec)){
       bp = bp_vec[bp_i]
@@ -396,7 +436,7 @@ if(bp_sensitivity) {
       max_EP[, bp_i] = apply(sim_ep, 2, max)
       
       #relationship between 1 / lambda_c and credibility (proportion of years without credibility incident)
-      mean_cred[, bp_i] = apply(sim_ep[-c(1:bp), ], 2, function(x) length(which(x > 0)) / (H - bp))
+      cred[, bp_i] = apply(sim_ep[-c(1:bp), ], 2, function(x) length(which(x > 0)) / (H - bp))
     }
     
     SummariseAcrossTests = function(input, var) {
@@ -419,77 +459,93 @@ if(bp_sensitivity) {
     ## Figures
     data_credit = SummariseAcrossTests(mean_credit, bp_vec)
     data_max_EP = SummariseAcrossTests(max_EP, bp_vec)
-    data_mean_cred = SummariseAcrossTests(mean_cred, bp_vec)
     
-    if(plot_bp) {
-      ggplot(data = data_credit, aes(x = var)) +
-        geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
-        geom_line(aes(y = mean), size = 1) +
-        scale_x_continuous(name = "Buffer period length") + 
-        scale_y_continuous(name = "Mean credits") + 
-        theme_bw() +
-        theme(axis.line = element_line(linewidth = 0.5),
-              panel.grid.minor = element_blank(),
-              axis.title = element_text(size = 22),
-              axis.text.x = element_text(size = 18, vjust = 0.5),
-              axis.text.y = element_text(size = 18, angle = 45),
-              plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
-      ggsave(paste0(file_path, subfolder, "expo_", expo_text, "_1_bp_vs_mean_credit.", save_type), width = 15, height = 10, unit = "cm")
-      
-      ggplot(data = data_max_EP, aes(x = var)) +
-        geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
-        geom_line(aes(y = mean), size = 1) +
-        scale_x_continuous(name = "Buffer period length") + 
-        scale_y_continuous(name = "Maximum EP") + 
-        theme_bw() +
-        theme(axis.line = element_line(linewidth = 0.5),
-              panel.grid.minor = element_blank(),
-              axis.title = element_text(size = 22),
-              axis.text.x = element_text(size = 18, vjust = 0.5),
-              axis.text.y = element_text(size = 18, angle = 45),
-              plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
-      ggsave(paste0(file_path, subfolder, "expo_", expo_text, "_2_bp_vs_max_EP.", save_type), width = 15, height = 10, unit = "cm")
-      
-      ggplot(data = data_mean_cred, aes(x = var)) +
-        geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
-        geom_line(aes(y = mean), size = 1) +
-        geom_hline(yintercept = 0.95, col = "red", lty = "dashed", size = 0.5) +
-        scale_x_continuous(name = "Buffer period length") + 
-        scale_y_continuous(name = "Mean credibility", limits = c(0.75, 1)) + 
-        theme_bw() +
-        theme(axis.line = element_line(linewidth = 0.5),
-              panel.grid.minor = element_blank(),
-              axis.title = element_text(size = 22),
-              axis.text.x = element_text(size = 18, vjust = 0.5),
-              axis.text.y = element_text(size = 18, angle = 45),
-              plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
-      ggsave(paste0(file_path, subfolder, "expo_", expo_text, "_3_bp_vs_no_cred.", save_type), width = 15, height = 10, unit = "cm")
-    }
-    
-    min_bp_needed[c_i] = min(which(data_mean_cred$mean >= 1 - omega)) #the minimum buffer period length at which mean credbility > 1 - omega
+    list_cred[[c_i]] = cred
+    list_summ_cred[[c_i]] = SummariseAcrossTests(cred, bp_vec) %>%
+      mutate(scale_c = scale_c)
+
+    # if(plot_bp) {
+    #   ggplot(data = data_credit, aes(x = var)) +
+    #     geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
+    #     geom_line(aes(y = mean), size = 1) +
+    #     scale_x_continuous(name = "Buffer period length") + 
+    #     scale_y_continuous(name = "Mean credits") + 
+    #     theme_bw() +
+    #     theme(axis.line = element_line(linewidth = 0.5),
+    #           panel.grid.minor = element_blank(),
+    #           axis.title = element_text(size = 22),
+    #           axis.text.x = element_text(size = 18, vjust = 0.5),
+    #           axis.text.y = element_text(size = 18, angle = 45),
+    #           plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
+    #   ggsave(paste0(file_path, subfolder, "expo_", expo_text, "_1_bp_vs_mean_credit.", save_type), width = 15, height = 10, unit = "cm")
+    #   
+    #   ggplot(data = data_max_EP, aes(x = var)) +
+    #     geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
+    #     geom_line(aes(y = mean), size = 1) +
+    #     scale_x_continuous(name = "Buffer period length") + 
+    #     scale_y_continuous(name = "Maximum EP") + 
+    #     theme_bw() +
+    #     theme(axis.line = element_line(linewidth = 0.5),
+    #           panel.grid.minor = element_blank(),
+    #           axis.title = element_text(size = 22),
+    #           axis.text.x = element_text(size = 18, vjust = 0.5),
+    #           axis.text.y = element_text(size = 18, angle = 45),
+    #           plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
+    #   ggsave(paste0(file_path, subfolder, "expo_", expo_text, "_2_bp_vs_max_EP.", save_type), width = 15, height = 10, unit = "cm")
+    #   
+    #   ggplot(data = data_mean_cred, aes(x = var)) +
+    #     geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
+    #     geom_line(aes(y = mean), size = 1) +
+    #     geom_hline(yintercept = 0.95, col = "red", lty = "dashed", size = 0.5) +
+    #     scale_x_continuous(name = "Buffer period length") + 
+    #     scale_y_continuous(name = "Mean credibility", limits = c(0.75, 1)) + 
+    #     theme_bw() +
+    #     theme(axis.line = element_line(linewidth = 0.5),
+    #           panel.grid.minor = element_blank(),
+    #           axis.title = element_text(size = 22),
+    #           axis.text.x = element_text(size = 18, vjust = 0.5),
+    #           axis.text.y = element_text(size = 18, angle = 45),
+    #           plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
+    #   ggsave(paste0(file_path, subfolder, "expo_", expo_text, "_3_bp_vs_no_cred.", save_type), width = 15, height = 10, unit = "cm")
+    # }
   }
-  
-  ggplot(data = data.frame(scale_c = scale_c_vec, min_bp = min_bp_needed)) +
-    geom_line(aes(x = scale_c, y = min_bp), size = 1) +
-    geom_hline(yintercept = 5, col = "red", lty = "dashed", size = 0.5) +
-    scale_x_continuous(name = expression(1 / lambda[c]), breaks = seq(1.1, 1.7, by = 0.1)) + 
-    scale_y_continuous(name = "Minimum buffer period (year)") + 
-    theme_bw() +
-    theme(axis.line = element_line(linewidth = 0.5),
-          panel.grid.minor = element_blank(),
-          axis.title = element_text(size = 22),
-          axis.text.x = element_text(size = 16),
-          axis.text.y = element_text(size = 14),
-          plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
-  ggsave(paste0(file_path, subfolder, "scale_c_vs_min_bp.", save_type), width = 15, height = 15, unit = "cm")
 }
+b = Sys.time()
+b - a
+
+summ_risk = do.call(rbind, list_summ_cred) %>%
+  mutate(ci_low = 1 - ci_low, ci_high = 1 - ci_high, mean = 1 - mean, scale_c = as.factor(scale_c))
+
+
+#bp length vs failure risk, each curve is a scale_c
+ggplot(data = summ_risk, aes(x = var, group = scale_c)) +
+  geom_ribbon(aes(ymin = ci_low, ymax = ci_high, fill = scale_c), alpha = 0.3) +
+  geom_line(aes(y = mean, color = scale_c), size = 0.5) +
+  geom_hline(yintercept = 0.05, color = "red", lty = "dashed", size = 1) +
+  scale_x_continuous(name = "Warm-up period length") + 
+  scale_y_continuous(name = "Failure risk", limits = c(0, 0.2)) + 
+  scale_color_manual(values = c("red", "pink", "lightblue", "blue")) +
+  scale_fill_manual(values = c("red", "pink",  "lightblue", "blue"), guide = NULL) + 
+  guides(color = guide_legend(title = "Drawdown rate", title.theme = element_text(size = 18),
+                              label.theme = element_text(size = 16), override.aes = list(linewidth = 1))) +
+  theme_bw() +
+  theme(axis.line = element_line(linewidth = 0.5),
+        panel.grid.minor = element_blank(),
+        axis.title = element_text(size = 22),
+        axis.text.x = element_text(size = 18, vjust = 0.5),
+        axis.text.y = element_text(size = 18, angle = 45),
+        plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
+ggsave(paste0(file_path, subfolder, "wupl_vs_risk_by_scale_c.", save_type), width = 20, height = 15, unit = "cm")
 
 
 # Sensitivity to post-project release level ----
+lc_sensitivity = F
+bp_sensitivity = F
 ppr_sensitivity = T
+H_sensitivity = F
 
 if(ppr_sensitivity) {
-  scale_c = 10 #5, 10: "good" project, 1.3: "bad" project
+  scale_c = 5 #5, 10: "good" project, 1.3: "bad" project
   bp = 5
   ppr_vec = seq(1, 5, by = 0.1)
 
@@ -538,14 +594,85 @@ if(ppr_sensitivity) {
     geom_line(aes(y = mean), size = 1) +
     scale_y_continuous(limits = c(0, 0.75)) + 
     xlab(label = "Post-project release rate<br>(*n* times counterfactual release during project)") + 
-    ylab(label = "Mean credibility") + 
+    ylab(label = "Max EP") + 
     theme_bw() +
     theme(axis.line = element_line(linewidth = 0.5),
           panel.grid.minor = element_blank(),
-          axis.title.x = element_markdown(size = 20),
+          axis.title.x = element_markdown(size = 16),
           axis.title.y = element_markdown(size = 22),
-          axis.text.x = element_text(size = 18, vjust = 0.5),
-          axis.text.y = element_text(size = 18),
+          axis.text.x = element_text(size = 14, vjust = 0.5),
+          axis.text.y = element_text(size = 14),
           plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
   ggsave(paste0(file_path, subfolder, "expo_", expo_text, "_2_ppr_vs_max_EP.", save_type), width = 15, height = 10, unit = "cm")
+}
+
+
+
+# Sensitivity to project length ----
+lc_sensitivity = F
+bp_sensitivity = F
+ppr_sensitivity = F
+H_sensitivity = T
+
+if(H_sensitivity) {
+  scale_c = 5 #5, 10: "good" project, 1.3: "bad" project
+  bp = 5
+  rate_postproj = 2
+  H_vec = seq(10, 100, by = 5)
+  
+  mean_credit = matrix(NA, n_rep, length(H_vec))
+  max_EP = matrix(NA, n_rep, length(H_vec))
+  final_EP = matrix(NA, n_rep, length(H_vec))
+  mean_cred = matrix(NA, n_rep, length(H_vec))
+  
+  for(H_i in 1:length(H_vec)){
+    H = H_vec[H_i]
+    
+    source(paste0(file_path, "carbon_loss_simulations_core.R"))
+    
+    #relationship between 1 / lambda_c and mean of [median of credits] from all years
+    #mean_credit[, ppr_i] = apply(sim_credit, 2, sum) / (H - bp)
+    
+    #relationship between 1 / lambda_c and max EP from all years
+    max_EP[, H_i] = apply(sim_ep, 2, max)
+    
+    #relationship between 1 / lambda_c and credibility (proportion of years without credibility incident)
+    #mean_cred[, ppr_i] = apply(sim_ep[-c(1:bp), ], 2, function(x) length(which(x > 0)) / (H - bp))
+  }
+  
+  SummariseAcrossTests = function(input, var) {
+    n = nrow(input)
+    output = input %>% 
+      t() %>%
+      as.data.frame() %>%
+      rowwise() %>% 
+      mutate(mean = mean(c_across(1:n_rep)),
+             sd = sd(c_across(1:n_rep))) %>%
+      ungroup() %>%
+      mutate(var = var,
+             ci_margin = qt(0.975, df = n_rep - 1) * sd / sqrt(n_rep),
+             ci_low = mean - ci_margin,
+             ci_high = mean + ci_margin) %>%
+      select(-all_of(c(1:n)))
+    return(output)
+  }
+  
+  ## Figures
+  data_max_EP = SummariseAcrossTests(max_EP, H_vec)
+  
+  ggplot(data = data_max_EP, aes(x = var)) +
+    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
+    geom_line(aes(y = mean), size = 1) +
+    scale_y_continuous(limits = c(0, 0.75)) + 
+    xlab(label = "Project duration") + 
+    ylab(label = "Max EP") + 
+    theme_bw() +
+    theme(axis.line = element_line(linewidth = 0.5),
+          panel.grid.minor = element_blank(),
+          axis.title.x = element_markdown(size = 16),
+          axis.title.y = element_markdown(size = 22),
+          axis.text.x = element_text(size = 14, vjust = 0.5),
+          axis.text.y = element_text(size = 14),
+          plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
+  ggsave(paste0(file_path, subfolder, "expo_", expo_text, "_proj_len_vs_max_EP.", save_type), width = 15, height = 10, unit = "cm")
 }
