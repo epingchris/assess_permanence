@@ -1,7 +1,7 @@
 # 1a. Set parameters for numerical projects with exponential C loss distribution ----
 if(type == "expo") {
-  year_pres_obs = 2021 #actually no observed data; all are simulated
-  t0 = 2023
+  t0 = 2021
+  year_pres_obs = 2020 #actually no observed data; all are simulated
   lambda_p = 1
   lambda_c = 1 / scale_c
   
@@ -24,8 +24,8 @@ if(type == "expo") {
   
   # 1b. Load data and set parameters for portfolios of real-life projects ----
 } else if(type == "expo_portfolio") {
-  year_pres_obs = 2021 #actually no observed data; all are simulated
-  t0 = 2023
+  year_pres_obs = 2020 #actually no observed data; all are simulated
+  t0 = 2021
   
   scale_c_vec = switch(expo_portfolio_type,
                  "A" = c(1.5, 1.5, 1.5, 10),
@@ -56,9 +56,9 @@ if(type == "expo") {
   year_pres_obs = 2021
   
   sites = switch(portfolio_type,
-                 "all" = c("Gola_country", "WLT_VNCC_KNT", "CIF_Alto_Mayo", "VCS_1396", "VCS_934"),
-                 "good" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396"),
-                 "four" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396", "VCS_934"))
+                 "five" = c("Gola_country", "WLT_VNCC_KNT", "CIF_Alto_Mayo", "VCS_1396", "VCS_934"),
+                 "four" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396", "VCS_934"),
+                 "good" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396"))
   
   summ_flux = vector("list", length(sites))
   absloss_p_init_list = vector("list", length(sites))
@@ -67,7 +67,7 @@ if(type == "expo") {
   
   for(s in sites){
     i = which(sites %in% s)
-    load(file = paste0(file_path, s, ".Rdata")) #load data
+    load(file = paste0(file_path, "project_input_data/", s, ".Rdata")) #load data
     t0_vec[i] = t0
     
     flux_series_sim = mapply(function(x, y) makeFlux(project_series = x, leakage_series = y)$flux,
@@ -139,7 +139,7 @@ if(type == "expo") {
   
   # 1c. Load data and set parameters for individual projects ----
 } else if(type == "project") {
-  load(file = paste0(file_path, project_site, ".Rdata"))
+  load(file = paste0(file_path, "project_input_data/", project_site, ".Rdata"))
   
   flux_series_sim = mapply(function(x, y) makeFlux(project_series = x, leakage_series = y)$flux,
                            x = agb_series_project_sim,
@@ -239,8 +239,7 @@ for(j in 1:n_rep){
         samp_additionality = SampGMM(absloss_c_fit, n = 1000) - SampGMM(absloss_p_fit, n = 1000)
       }
       aomega = quantile(samp_additionality, omega)
-      #if(j < 5) cat(year_i, aomega, "\n")
-      
+
       #get carbon loss values: sample from fitted distributions when ex post values not available
     } else {
       if(type == "expo") {
@@ -384,24 +383,24 @@ summ_cred$cred[1:bp] = NA
 if(type == "expo") {
   expo_text = ifelse(exists("scale_c"), gsub("\\.", "_", as.character(scale_c)), "")  
   if(bp_sensitivity) {
-    subfolder = "bp_sensitivity/"
-    file_pref = paste0(subfolder, "expo_", expo_text, "_bp_", bp)
+    subfolder = "sensitivity_bp/"
+    file_pref = paste0("expo_", expo_text, "_bp_", bp)
     save(scale_c, bp,
          file_pref, t0, scc_extrap,
          sim_credit_long, sim_release_long,
          summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
     
   } else if(ppr_sensitivity) {
-    subfolder = "ppr_sensitivity/"
-    file_pref = paste0(subfolder, "expo_", expo_text, "_ppr_", gsub("\\.", "_", as.character(rate_postproj)))
+    subfolder = "sensitivity_ppr/"
+    file_pref = paste0("expo_", expo_text, "_ppr_", gsub("\\.", "_", as.character(rate_postproj)))
     save(scale_c, rate_postproj,
          file_pref, t0, scc_extrap,
          sim_credit_long, sim_release_long,
          summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
     
   } else if(H_sensitivity) {
-    subfolder = "H_sensitivity/"
-    file_pref = paste0(subfolder, "expo_", expo_text, "_H_", H)
+    subfolder = "sensitivity_H/"
+    file_pref = paste0("expo_", expo_text, "_H_", H)
     save(scale_c, H,
          file_pref, t0, scc_extrap,
          sim_credit_long, sim_release_long,
@@ -409,16 +408,16 @@ if(type == "expo") {
     
   } else {
     subfolder = ifelse(use_theo,
-                       "theoretical_figures_analytical_aomega/",
-                       "theoretical_figures_sampled_aomega/")
-    file_pref = paste0(subfolder, "expo_", expo_text, ifelse(use_theo, "_theo", ""))
+                       "hypo/",
+                       "hypo_sampled_aomega/")
+    file_pref = paste0("expo_", expo_text, ifelse(use_theo, "", "_sampled_aomega"))
     save(scale_c,
          file_pref, t0, scc_extrap,
          sim_credit_long, sim_release_long,
          summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
   }
 } else if(type == "project"){
-  subfolder = "projects/"
+  subfolder = paste0(type, "/")
   file_pref = paste0(subfolder, switch(project_site,
                                        "Gola_country" = "Gola",
                                        "WLT_VNCC_KNT" = "KNT",
@@ -431,16 +430,16 @@ if(type == "expo") {
        summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
   
 } else if(type == "portfolio") {
-  subfolder = ""
-  file_pref = paste0("portfolio_", portfolio_type)
+  subfolder = paste0(type, "/")
+  file_pref = paste0(type, "_", portfolio_type)
   save(portfolio_type, sites, summ_flux,
        file_pref, t0, scc_extrap,
        sim_credit_long, sim_release_long,
        summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
   
 } else if(type == "expo_portfolio") {
-  subfolder = ""
-  file_pref = paste0("expo_portfolio_", expo_portfolio_type)
+  subfolder = paste0(type, "/")
+  file_pref = paste0(type, "_", expo_portfolio_type)
   save(expo_portfolio_type, scale_c_vec,
        file_pref, t0, scc_extrap,
        sim_credit_long, sim_release_long,
