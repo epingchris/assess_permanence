@@ -1,9 +1,9 @@
 # 1a. Set parameters for numerical projects with exponential C loss distribution ----
-if(type == "expo") {
+if(type == "hypo") {
   t0 = 2021
   year_pres_obs = 2020 #actually no observed data; all are simulated
   lambda_p = 1
-  lambda_c = 1 / scale_c
+  lambda_c = 1 / dd_rate
   
   absloss_p_samp = rexp(1000, lambda_p)
   absloss_c_samp = rexp(1000, lambda_c)
@@ -23,16 +23,16 @@ if(type == "expo") {
                   quantile(add_samp, omega))
   
   # 1b. Load data and set parameters for portfolios of real-life projects ----
-} else if(type == "expo_portfolio") {
+} else if(type == "hypo_aggr") {
   year_pres_obs = 2020 #actually no observed data; all are simulated
   t0 = 2021
   
-  scale_c_vec = switch(expo_portfolio_type,
+  dd_rate_vec = switch(hypo_aggr_type,
                  "A" = c(1.5, 1.5, 1.5, 10),
                  "B" = c(1.5, 1.5, 10, 10),
                  "C" = c(1.5, 10, 10, 10))
-  lambda_p_vec = rep(1, length(scale_c_vec))
-  lambda_c_vec = 1 / scale_c_vec
+  lambda_p_vec = rep(1, length(dd_rate_vec))
+  lambda_c_vec = 1 / dd_rate_vec
   
   absloss_p_samp_list = lapply(lambda_p_vec, function(x) rexp(1000, x))
   absloss_c_samp_list = lapply(lambda_c_vec, function(x) rexp(1000, x))
@@ -52,10 +52,10 @@ if(type == "expo") {
     apply(1, sum)
   aomega = quantile(add_samp, omega)
   
-} else if(type == "portfolio") {
+} else if(type == "real_aggr") {
   year_pres_obs = 2021
   
-  sites = switch(portfolio_type,
+  sites = switch(real_aggr_type,
                  "five" = c("Gola_country", "WLT_VNCC_KNT", "CIF_Alto_Mayo", "VCS_1396", "VCS_934"),
                  "four" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396", "VCS_934"),
                  "good" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396"))
@@ -138,7 +138,7 @@ if(type == "expo") {
   aomega = quantile(add_samp, omega)
   
   # 1c. Load data and set parameters for individual projects ----
-} else if(type == "project") {
+} else if(type == "real") {
   load(file = paste0(file_path, "project_input_data/", project_site, ".Rdata"))
   
   flux_series_sim = mapply(function(x, y) makeFlux(project_series = x, leakage_series = y)$flux,
@@ -196,7 +196,7 @@ sim_release = matrix(0, H_rel, n_rep)
 sim_damage = matrix(0, H, n_rep)
 sim_ep = matrix(0, H, n_rep)
 sim_pact = matrix(0, H, n_rep)
-sim_credibility = matrix(1, H, n_rep)
+sim_failure = matrix(F, H, n_rep)
 sim_buffer = matrix(0, H, n_rep)
 sim_r_sched = vector("list", n_rep)
 
@@ -213,13 +213,17 @@ for(j in 1:n_rep){
       sim_c_loss[i, j] = expost_c_loss[i]
       
       #calculate a-omega based on carbon loss distributions
-      if(type == "expo") {
+      if(type == "hypo") {
         samp_additionality = rexp(1000, lambda_c) - rexp(1000, lambda_p)
-      } else if(type == "expo_portfolio") {
+      } else if(type == "real") {
+        absloss_p_fit = FitGMM(subset(absloss_p_init, year <= year_i)$val)
+        absloss_c_fit = FitGMM(subset(absloss_c_init, year <= year_i)$val)
+        samp_additionality = SampGMM(absloss_c_fit, n = 1000) - SampGMM(absloss_p_fit, n = 1000)
+      } else if(type == "hypo_aggr") {
         samp_additionality = mapply(function(x, y) rexp(1000, x) - rexp(1000, y),
                                     x = lambda_c_vec, y = lambda_p_vec) %>%
           apply(1, sum)
-      } else if(type == "portfolio") {
+      } else if(type == "real_aggr") {
         absloss_p_fit_list = lapply(absloss_p_init_list, function(x) {
           FitGMM(subset(x, year <= year_i & year >= t0)$val)})
         absloss_p_samp_list = lapply(absloss_p_fit_list, function(x) SampGMM(x, n = 1000))
@@ -233,27 +237,23 @@ for(j in 1:n_rep){
                                     y = absloss_p_samp_list) %>%
           as.data.frame() %>%
           apply(1, function(x) sum(x, na.rm = T))
-      } else if(type == "project") {
-        absloss_p_fit = FitGMM(subset(absloss_p_init, year <= year_i)$val)
-        absloss_c_fit = FitGMM(subset(absloss_c_init, year <= year_i)$val)
-        samp_additionality = SampGMM(absloss_c_fit, n = 1000) - SampGMM(absloss_p_fit, n = 1000)
       }
       aomega = quantile(samp_additionality, omega)
 
       #get carbon loss values: sample from fitted distributions when ex post values not available
     } else {
-      if(type == "expo") {
+      if(type == "hypo") {
         sim_p_loss[i, j] = rexp(1, lambda_p)
         sim_c_loss[i, j] = rexp(1, lambda_c)
-      } else if(type == "expo_portfolio") {
-        sim_p_loss[i, j] = sum(sapply(lambda_p_vec, function(x) rexp(1, x)))
-        sim_c_loss[i, j] = sum(sapply(lambda_c_vec, function(x) rexp(1, x)))
-      } else if(type == "portfolio") {
-        sim_p_loss[i, j] = sum(sapply(absloss_p_fit_list, function(x) SampGMM(x, n = 1)))
-        sim_c_loss[i, j] = sum(sapply(absloss_c_fit_list, function(x) SampGMM(x, n = 1)))
-      } else if(type == "project") {
+      } else if(type == "real") {
         sim_p_loss[i, j] = SampGMM(absloss_p_fit, n = 1)
         sim_c_loss[i, j] = SampGMM(absloss_c_fit, n = 1)
+      } else if(type == "hypo_aggr") {
+        sim_p_loss[i, j] = sum(sapply(lambda_p_vec, function(x) rexp(1, x)))
+        sim_c_loss[i, j] = sum(sapply(lambda_c_vec, function(x) rexp(1, x)))
+      } else if(type == "real_aggr") {
+        sim_p_loss[i, j] = sum(sapply(absloss_p_fit_list, function(x) SampGMM(x, n = 1)))
+        sim_c_loss[i, j] = sum(sapply(absloss_c_fit_list, function(x) SampGMM(x, n = 1)))
       }
     }
     sim_additionality[i, j] = sim_c_loss[i, j] - sim_p_loss[i, j]
@@ -304,7 +304,7 @@ for(j in 1:n_rep){
         #cat("Credit =", sim_credit[i, j], ", Benefit =", sim_benefit[i, j], ", Damage =", sim_damage[i, j], ", eP =", sim_ep[i, j], "\n")
       } else if(sim_credit[i, j] <= 0){
         sim_ep[i, j] = 0
-        sim_credibility[i, j] = 0
+        sim_failure[i, j] = T
       }
       sim_pact[i, j]  = sim_credit[i, j] * sim_ep[i, j]
     }
@@ -313,9 +313,20 @@ for(j in 1:n_rep){
   sim_r_sched[[j]] = r_sched
 }
 
+#view evolution of a particular iteration
+if(view_snapshot) {
+  j = 1
+  snapshot = data.frame(additionality = sim_additionality[1:50, j],
+                        aomega = sim_aomega[1:50, j],
+                        release = sim_release[1:50, j],
+                        credit = sim_credit[1:50, j],
+                        PACT = sim_pact[1:50, j],
+                        rsched = apply(sim_r_sched[[j]], 1, sum),
+                        buffer = sim_buffer[1:50, j])
+  View(snapshot)
+}
 
 # 3. Summarise results ----
-
 SummariseSim = function(mat){
   df = mat %>%
     as.data.frame() %>%
@@ -335,34 +346,11 @@ SummariseSim = function(mat){
   return(df)
 }
 
-#view evolution of a particular iteration
-if(view_snapshot) {
-  j = 1
-  snapshot = data.frame(additionality = sim_additionality[1:50, j],
-                        aomega = sim_aomega[1:50, j],
-                        release = sim_release[1:50, j],
-                        credit = sim_credit[1:50, j],
-                        PACT = sim_pact[1:50, j],
-                        rsched = apply(sim_r_sched[[j]], 1, sum),
-                        buffer = sim_buffer[1:50, j])
-  View(snapshot)
-}
-
-sim_credit_long = sim_credit %>%
-  as.data.frame() %>%
-  mutate(t = row_number()) %>%
-  pivot_longer(V1:V100, names_to = "rep", values_to = "val")
-
-sim_release_long = sim_release %>%
-  as.data.frame() %>%
-  mutate(t = row_number()) %>%
-  pivot_longer(V1:V100, names_to = "rep", values_to = "val")
-
 summ_additionality = SummariseSim(sim_additionality)
 summ_credit = SummariseSim(sim_credit)
-summ_pact = SummariseSim(sim_pact)
+#summ_pact = SummariseSim(sim_pact)
 summ_release = SummariseSim(sim_release[1:H, ])
-summ_buffer = SummariseSim(sim_buffer)
+#summ_buffer = SummariseSim(sim_buffer)
 summ_aomega = SummariseSim(sim_aomega)
 
 summ_ep = sim_ep %>%
@@ -370,78 +358,126 @@ summ_ep = sim_ep %>%
   SummariseSim() %>%
   replace(., . == Inf| . == -Inf, NA)
 
-summ_cred = sim_ep %>%
-  as.data.frame() %>%
-  reframe(
-    year = row_number(),
-    cred = apply(., 1, function(x) length(which(x > 0)) / n_rep))
-summ_cred$cred[1:bp] = NA
+#per-year failure risk (proportion of repetitions without positive credits)
+summ_risk = data.frame(year = 1:H,
+                       risk = apply(sim_failure, 1, sum) / ncol(sim_failure))
+summ_risk$risk[1:bp] = NA
 
 
 #4. Set file prefixes and save results ----
+if(hypo_sensit != "none") {
+  subfolder = paste0("sensitivity_", hypo_sensit, "/")
+} else {
+  subfolder = paste0(type, "/")
+}
 
-if(type == "expo") {
-  expo_text = ifelse(exists("scale_c"), gsub("\\.", "_", as.character(scale_c)), "")  
-  if(bp_sensitivity) {
-    subfolder = "sensitivity_bp/"
-    file_pref = paste0("expo_", expo_text, "_bp_", bp)
-    save(scale_c, bp,
-         file_pref, t0, scc_extrap,
-         sim_credit_long, sim_release_long,
-         summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
-    
-  } else if(ppr_sensitivity) {
-    subfolder = "sensitivity_ppr/"
-    file_pref = paste0("expo_", expo_text, "_ppr_", gsub("\\.", "_", as.character(rate_postproj)))
-    save(scale_c, rate_postproj,
-         file_pref, t0, scc_extrap,
-         sim_credit_long, sim_release_long,
-         summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
-    
-  } else if(H_sensitivity) {
-    subfolder = "sensitivity_H/"
-    file_pref = paste0("expo_", expo_text, "_H_", H)
-    save(scale_c, H,
-         file_pref, t0, scc_extrap,
-         sim_credit_long, sim_release_long,
-         summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
-    
+if(type == "hypo") {
+  dd_rate_text = gsub("\\.", "_", as.character(dd_rate))
+  if(hypo_sensit == "dd_rate") {
+    file_pref = paste0(hypo_sensit, "_", dd_rate_text)
+    summ = list(type = type,
+                sensitivity = hypo_sensit,
+                dd_rate = dd_rate,
+                additionality = summ_additionality,
+                credit = summ_credit,
+                release = summ_release,
+                aomega = summ_aomega,
+                ep = summ_ep,
+                risk = summ_risk)
+  } else if(hypo_sensit == "warmup") {
+    file_pref = paste0("dd_rate_", dd_rate_text, "_", hypo_sensit, "_", bp)
+    summ = list(type = type,
+                sensitivity = hypo_sensit,
+                dd_rate = dd_rate,
+                bp = bp,
+                additionality = summ_additionality,
+                credit = summ_credit,
+                release = summ_release,
+                aomega = summ_aomega,
+                ep = summ_ep,
+                risk = summ_risk)
+  } else if(hypo_sensit == "ppr") {
+    file_pref = paste0("dd_rate_", dd_rate_text, "_ppr_", gsub("\\.", "_", as.character(rate_postproj)))
+    summ = list(type = type,
+                sensitivity = hypo_sensit,
+                dd_rate = dd_rate,
+                ppr = rate_postproj,
+                additionality = summ_additionality,
+                credit = summ_credit,
+                release = summ_release,
+                aomega = summ_aomega,
+                ep = summ_ep,
+                risk = summ_risk)
+  } else if(hypo_sensit == "H") {
+    file_pref = paste0("dd_rate_", dd_rate_text, "_H_", H)
+    summ = list(type = type,
+                sensitivity = hypo_sensit,
+                dd_rate = dd_rate,
+                H = H,
+                additionality = summ_additionality,
+                credit = summ_credit,
+                release = summ_release,
+                aomega = summ_aomega,
+                ep = summ_ep,
+                risk = summ_risk)
   } else {
     subfolder = ifelse(use_theo,
                        "hypo/",
                        "hypo_sampled_aomega/")
-    file_pref = paste0("expo_", expo_text, ifelse(use_theo, "", "_sampled_aomega"))
-    save(scale_c,
-         file_pref, t0, scc_extrap,
-         sim_credit_long, sim_release_long,
-         summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+    file_pref = paste0("dd_rate_", dd_rate_text, ifelse(use_theo, "", "_sampled_aomega"))
+    summ = list(type = type,
+                sensitivity = hypo_sensit,
+                dd_rate = dd_rate,
+                additionality = summ_additionality,
+                credit = summ_credit,
+                release = summ_release,
+                aomega = summ_aomega,
+                ep = summ_ep,
+                risk = summ_risk)
   }
-} else if(type == "project"){
-  subfolder = paste0(type, "/")
-  file_pref = paste0(subfolder, switch(project_site,
-                                       "Gola_country" = "Gola",
-                                       "WLT_VNCC_KNT" = "KNT",
-                                       "CIF_Alto_Mayo" = "Alto_Mayo",
-                                       "VCS_1396" = "RPA",
-                                       "VCS_934" = "Mai_Ndombe"))
-  save(project_site, summ_flux,
-       file_pref, t0, scc_extrap,
-       sim_credit_long, sim_release_long,
-       summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+} else if(type == "real"){
+  file_pref = paste0(switch(project_site,
+                            "Gola_country" = "Gola",
+                            "WLT_VNCC_KNT" = "KNT",
+                            "CIF_Alto_Mayo" = "Alto_Mayo",
+                            "VCS_1396" = "RPA",
+                            "VCS_934" = "Mai_Ndombe"))
   
-} else if(type == "portfolio") {
-  subfolder = paste0(type, "/")
-  file_pref = paste0(type, "_", portfolio_type)
-  save(portfolio_type, sites, summ_flux,
-       file_pref, t0, scc_extrap,
-       sim_credit_long, sim_release_long,
-       summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
-  
-} else if(type == "expo_portfolio") {
-  subfolder = paste0(type, "/")
-  file_pref = paste0(type, "_", expo_portfolio_type)
-  save(expo_portfolio_type, scale_c_vec,
-       file_pref, t0, scc_extrap,
-       sim_credit_long, sim_release_long,
-       summ_credit, summ_release, summ_ep, summ_pact, summ_cred, file = paste0(file_path, file_pref, "_simulations.Rdata"))
+  summ = list(type = type,
+              sensitivity = hypo_sensit,
+              project = project_site,
+              flux = summ_flux,
+              t0 = t0,
+              additionality = summ_additionality,
+              credit = summ_credit,
+              release = summ_release,
+              aomega = summ_aomega,
+              ep = summ_ep,
+              risk = summ_risk)
+} else if(type == "hypo_aggr") {
+  file_pref = paste0(type, "_", hypo_aggr_type)
+  summ = list(type = type,
+              sensitivity = hypo_sensit,
+              dd_rate = dd_rate_vec,
+              additionality = summ_additionality,
+              credit = summ_credit,
+              release = summ_release,
+              aomega = summ_aomega,
+              ep = summ_ep,
+              risk = summ_risk)
+} else if(type == "real_aggr") {
+  file_pref = paste0(type, "_", real_aggr_type)
+  summ = list(type = type,
+              sensitivity = hypo_sensit,
+              project = sites,
+              flux = summ_flux,
+              t0 = t0,
+              additionality = summ_additionality,
+              credit = summ_credit,
+              release = summ_release,
+              aomega = summ_aomega,
+              ep = summ_ep,
+              risk = summ_risk)
 }
+
+saveRDS(summ, file = paste0(file_path, subfolder, file_pref, "_output.RDS"))

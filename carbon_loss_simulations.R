@@ -7,19 +7,16 @@ file_path = "C:/Users/epr26/OneDrive - University of Cambridge/carbon_release_pa
 # Simulation settings ----
 
 #set simulation type (hypothetical or real-life, single or aggregated)
-type = "portfolio" #expo, project, expo_portfolio, portfolio
-scale_c = 1.1  #1.1, 2, 5
-expo_portfolio_type = "C" #A, B, C
-portfolio_type = "good" #five, four, good
+type = "real_aggr" #hypo, real, hypo_aggr, real_aggr
+dd_rate = 5  #1.1, 2, 5
+hypo_sensit = "none" #none, dd_rate, warmup, ppr, H
+hypo_aggr_type = "C" #A, B, C
+real_aggr_type = "three" #five, four, three
 project_site = "VCS_934" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
-use_theo = T #T, F; type == expo_portfolio will override this and set use_theo as F
+use_theo = T #T, F; type == hypo_aggr will override this and set use_theo as F
 file_type = "png" #png, pdf
 view_snapshot = F
-print_real = F #print real trajectories of all 100 repetitions
-lc_sensitivity = F
-bp_sensitivity = F
-ppr_sensitivity = F
-H_sensitivity = F
+print_allrep = F #print real trajectories of all 100 repetitions
 
 #basic parameters
 omega = 0.05
@@ -43,7 +40,7 @@ scc_extrap = rbind(scc_extrap1, dplyr::select(scc_new, c("year", "central")), sc
   mutate(low = central * 0.5, high = central * 1.5) %>%
   relocate(c(1, 3, 2, 4))
 year_max = max(scc_extrap$year)
-
+write.csv(scc_extrap, file = paste0(file_path, "scc_extrap.csv"))
 
 # Functions ----
 makeFlux = function(project_series, leakage_series){
@@ -108,9 +105,115 @@ source(paste0(file_path, "carbon_loss_simulations_core.R"))
 # Plot results ----
 yr_label = c(1, seq(H / 10, H, by = H / 10))
 
+## Time series (summary) ----
+if(type == "hypo") {
+  range_credit = c(-5, 45)
+} else if(type == "hypo_aggr") {
+  range_credit = c(-5, 110)
+} else {
+  range_credit = c(min(summ_credit$p05) - 1000, max(summ_credit$p95) + 1000)
+}
+
+#1. Credits
+ggplot(summ_credit, aes(x = year)) +
+  geom_ribbon(data = . %>% dplyr::select(year, p05, p95), aes(ymin = p05, ymax = p95), fill = "lightgray", alpha = 0.5) +
+  geom_ribbon(data = . %>% dplyr::select(year, p25, p75), aes(ymin = p25, ymax = p75), fill = "darkgray", alpha = 0.5) +
+  geom_line(data = . %>% dplyr::select(year, median), aes(y = median), size = 1, color = "black") +
+  geom_hline(yintercept = 0, size = 0.5, color = "black") +
+  {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_pres_obs - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
+  scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
+  scale_y_continuous(name = expression("Credits (Mg CO"[2]*")"), limits = range_credit) +
+  theme_bw() +
+  theme(axis.line = element_line(linewidth = 0.5),
+        panel.grid = element_blank(),
+        axis.title = element_text(size = 24),
+        axis.text.x = element_text(size = 18, vjust = 0.5),
+        axis.text.y = element_text(size = 18),
+        plot.margin = margin(0.7, 1, 0.7, 0.7, "cm"))
+ggsave(paste0(file_path, subfolder, file_pref, "_summ_credit.", file_type), width = 15, height = 10, unit = "cm")
+
+#2. EP
+ggplot(summ_ep, aes(x = year)) +
+  geom_ribbon(data = . %>% dplyr::select(year, p05, p95), aes(ymin = p05, ymax = p95), fill = "lightgray", alpha = 0.5) +
+  geom_ribbon(data = . %>% dplyr::select(year, p25, p75), aes(ymin = p25, ymax = p75), fill = "darkgray", alpha = 0.5) +
+  geom_line(data = . %>% dplyr::select(year, median), aes(y = median), size = 1, color = "black") +
+  {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_pres_obs - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
+  scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
+  scale_y_continuous(name = "EP", limits = c(0, 1)) +
+  theme_bw() +
+  theme(axis.line = element_line(linewidth = 0.5),
+        panel.grid = element_blank(),
+        axis.title = element_text(size = 24),
+        axis.text.x = element_text(size = 18, vjust = 0.5),
+        axis.text.y = element_text(size = 18),
+        plot.margin = margin(0.7, 1, 0.7, 0.7, "cm"))
+ggsave(paste0(file_path, subfolder, file_pref, "_summ_ep.", file_type), width = 15, height = 10, unit = "cm")
+
+# 3. Failure risk
+ggplot(summ_risk, aes(x = year)) +
+  geom_line(aes(y = risk), size = 1) +
+  scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) + 
+  scale_y_continuous(name = "Failure risk", limits = c(0, 0.5)) + 
+  geom_hline(yintercept = 0.05, color = "red", lty = "dashed", size = 0.5) +
+  {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_pres_obs - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
+  theme_bw() +
+  theme(axis.line = element_line(linewidth = 0.5),
+        panel.grid = element_blank(),
+        axis.title = element_text(size = 22),
+        axis.text.x = element_text(size = 18, vjust = 0.5),
+        axis.text.y = element_text(size = 18),
+        plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
+ggsave(paste0(file_path, subfolder, file_pref, "_summ_risk.", file_type), width = 15, height = 10, unit = "cm")
+
+
+## Time series (all repetitions) ----
+sim_credit_long = sim_credit %>%
+  as.data.frame() %>%
+  mutate(t = row_number()) %>%
+  pivot_longer(V1:V100, names_to = "rep", values_to = "val")
+
+sim_ep_long = sim_ep %>%
+  as.data.frame() %>%
+  replace(., . == 0, NA) %>%
+  mutate(t = row_number()) %>%
+  pivot_longer(V1:V100, names_to = "rep", values_to = "val")
+
+#1. Credits
+ggplot(sim_credit_long) +
+  geom_line(aes(x = t, y = val, color = rep), size = 0.5, show.legend = F) +
+  geom_hline(yintercept = 0, size = 1, color = "black") +
+  {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_pres_obs - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
+  scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
+  scale_y_continuous(name = expression("Credits (Mg CO"[2]*")"), limits = range_credit) +
+  theme_bw() +
+  theme(axis.line = element_line(linewidth = 0.5),
+        panel.grid = element_blank(),
+        axis.title = element_text(size = 24),
+        axis.text.x = element_text(size = 18, vjust = 0.5),
+        axis.text.y = element_text(size = 18),
+        plot.margin = margin(0.7, 1, 0.7, 0.7, "cm"))
+ggsave(paste0(file_path, subfolder, file_pref, "_allrep_credit.", file_type), width = 15, height = 10, unit = "cm")
+
+#2. EP
+ggplot(sim_ep_long) +
+  geom_line(aes(x = t, y = val, col = rep), size = 0.5, show.legend = F) +
+  geom_hline(yintercept = 0, size = 0.5, color = "black") +
+  {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_pres_obs - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
+  scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
+  scale_y_continuous(name = "EP", limits = c(0, 1)) +
+  theme_bw() +
+  theme(axis.line = element_line(linewidth = 0.5),
+        panel.grid = element_blank(),
+        axis.title = element_text(size = 24),
+        axis.text.x = element_text(size = 18, vjust = 0.5),
+        axis.text.y = element_text(size = 18),
+        plot.margin = margin(0.7, 1, 0.7, 0.7, "cm"))
+ggsave(paste0(file_path, subfolder, file_pref, "_allrep_ep.", file_type), width = 15, height = 10, unit = "cm")
+
+
 ## A_omega ----
 expo_limits = case_when(
-  type == "expo" & scale_c <= 1.5 ~ c(-10, 10),
+  type == "hypo" & dd_rate <= 1.5 ~ c(-10, 10),
   .default = NULL)
 
 ggplot(data = data.frame(var = "add", val = add_samp), aes(x = val)) +
@@ -126,285 +229,151 @@ ggplot(data = data.frame(var = "add", val = add_samp), aes(x = val)) +
         axis.text.x = element_text(size = 18, vjust = 0.5),
         axis.text.y = element_text(size = 18),
         plot.margin = margin(0.7, 1, 0.7, 0.7, "cm"))
-ggsave(paste0(file_path, subfolder, file_pref, "_3_aomega_distribution.", file_type), width = 15, height = 15, unit = "cm")
+ggsave(paste0(file_path, subfolder, file_pref, "_aomega.", file_type), width = 15, height = 15, unit = "cm")
 
 
-## Credits time series ----
-if(type == "expo") {
-  range_credit = c(-5, 45)
-  range_release = c(0, 5)
-} else if(type == "expo_portfolio") {
-  range_credit = c(-5, 110)
-  range_release = c(0, 30)
-} else {
-  range_credit = c(min(summ_credit$p05) - 1000, max(summ_credit$p95) + 1000)
-  range_release = c(0, max(summ_release$p95) + 1000)
+# Sensitivity tests ----
+SummariseAcrossTests = function(input, var) {
+  n = nrow(input)
+  output = input %>%
+    t() %>%
+    as.data.frame() %>%
+    rowwise() %>%
+    mutate(mean = mean(c_across(1:n_rep)),
+           sd = sd(c_across(1:n_rep))) %>%
+    ungroup() %>%
+    mutate(var = var,
+           ci_margin = qt(0.975, df = n_rep - 1) * sd / sqrt(n_rep),
+           ci_low = mean - ci_margin,
+           ci_high = mean + ci_margin) %>%
+    select(-all_of(c(1:n)))
+  return(output)
 }
 
-if(print_real) {
-  ggplot(sim_credit_long) +
-    geom_line(aes(x = t, y = val, color = rep), size = 0.5, show.legend = F) +
-    geom_hline(yintercept = 0, size = 1, color = "black") +
-    {if(type != "expo" & type != "expo_portfolio") geom_vline(xintercept = year_pres_obs - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
-    scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
-    scale_y_continuous(name = expression("Credits (Mg CO"[2]*")"), limits = range_credit) +
-    theme_bw() +
-    theme(axis.line = element_line(linewidth = 0.5),
-          panel.grid = element_blank(),
-      	axis.title = element_text(size = 24),
-      	axis.text.x = element_text(size = 18, vjust = 0.5),
-      	axis.text.y = element_text(size = 18),
-      	plot.margin = margin(0.7, 1, 0.7, 0.7, "cm"))
-  ggsave(paste0(file_path, subfolder, file_pref, "_4a_sim_credit_real.", file_type), width = 15, height = 10, unit = "cm")
+
+## Drawdown rate (1/lambda_c) ----
+type = "hypo"
+hypo_sensit = "dd_rate" #none, dd_rate, warmup, ppr, H
+dd_rate_vec = c(seq(1, 10, by = 0.1))
+
+mean_credit = matrix(NA, n_rep, length(dd_rate_vec))
+max_EP = matrix(NA, n_rep, length(dd_rate_vec))
+mean_pact = matrix(NA, n_rep, length(dd_rate_vec))
+risk = matrix(NA, n_rep, length(dd_rate_vec))
+
+for(dd_i in 1:length(dd_rate_vec)){
+  dd_rate = dd_rate_vec[dd_i]
+  source(paste0(file_path, "carbon_loss_simulations_core.R"))
+  
+  #mean of credits from all years (except warm-up period)
+  mean_credit[, dd_i] = apply(sim_credit, 2, sum) / (H - bp)
+  
+  #max EP from all years
+  max_EP[, dd_i] = apply(sim_ep, 2, max)
+  
+  #per-repetition failure risk (proportion of years without positive credit)
+  risk[, dd_i] = apply(sim_failure, 2, sum) / (H - bp)
 }
 
-ggplot(summ_credit, aes(x = year)) +
-  geom_ribbon(data = . %>% dplyr::select(year, p05, p95), aes(ymin = p05, ymax = p95), fill = "lightgray", alpha = 0.5) +
-  geom_ribbon(data = . %>% dplyr::select(year, p25, p75), aes(ymin = p25, ymax = p75), fill = "darkgray", alpha = 0.5) +
-  geom_line(data = . %>% dplyr::select(year, median), aes(y = median), size = 1, color = "black") +
-  geom_hline(yintercept = 0, size = 0.5, color = "black") +
-  {if(type != "expo" & type != "expo_portfolio") geom_vline(xintercept = year_pres_obs - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
-  scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
-  scale_y_continuous(name = expression("Credits (Mg CO"[2]*")"), limits = range_credit) +
+## Figure 2
+drawdown_vec = dd_rate_vec - 1
+data_credit = SummariseAcrossTests(mean_credit, drawdown_vec)
+ggplot(data = data_credit, aes(x = var)) +
+  #    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
+  geom_line(aes(y = mean)) +
+  scale_x_continuous(name = "Drawdown", limits = c(0, 5), breaks = seq(0, 5, by = 1)) + 
+  scale_y_continuous(name = "Credits") + 
   theme_bw() +
   theme(axis.line = element_line(linewidth = 0.5),
-        panel.grid = element_blank(),
-        axis.title = element_text(size = 24),
-        axis.text.x = element_text(size = 18, vjust = 0.5),
-        axis.text.y = element_text(size = 18),
-        plot.margin = margin(0.7, 1, 0.7, 0.7, "cm"))
-ggsave(paste0(file_path, subfolder, file_pref, "_4_sim_credit_rep.", file_type), width = 15, height = 10, unit = "cm")
-
-
-## EP time series ----
-
-if(print_real) {
-  ggplot(as.data.frame(sim_ep) %>% replace(., . == 0, NA) %>% mutate(t = row_number()) %>% pivot_longer(V1:V100, names_to = "rep", values_to = "val")) +
-    geom_line(aes(x = t, y = val, col = rep), size = 0.5, show.legend = F) +
-    geom_hline(yintercept = 0, size = 0.5, color = "black") +
-    geom_vline(xintercept = case_when(type != "expo" & type != "expo_portfolio" ~ year_pres_obs - t0 + 1, .default = NULL), size = 0.5, color = "black", lty = "dotted") +
-    scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
-    scale_y_continuous(name = "EP", limits = c(0, 1)) +
-    theme_bw() +
-    theme(axis.line = element_line(linewidth = 0.5),
-          panel.grid = element_blank(),
-      	axis.title = element_text(size = 24),
-      	axis.text.x = element_text(size = 18, vjust = 0.5),
-      	axis.text.y = element_text(size = 18),
-      	plot.margin = margin(0.7, 1, 0.7, 0.7, "cm"))
-  ggsave(paste0(file_path, subfolder, file_pref, "_6a_sim_ep_real.", file_type), width = 15, height = 10, unit = "cm")
-}
-
-ggplot(summ_ep, aes(x = year)) +
-  geom_ribbon(data = . %>% dplyr::select(year, p05, p95), aes(ymin = p05, ymax = p95), fill = "lightgray", alpha = 0.5) +
-  geom_ribbon(data = . %>% dplyr::select(year, p25, p75), aes(ymin = p25, ymax = p75), fill = "darkgray", alpha = 0.5) +
-  geom_line(data = . %>% dplyr::select(year, median), aes(y = median), size = 1, color = "black") +
-  geom_vline(xintercept = case_when(type != "expo" & type != "expo_portfolio" ~ year_pres_obs - t0 + 1, .default = NULL), size = 0.5, color = "black", lty = "dotted") +
-  scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
-  scale_y_continuous(name = "EP", limits = c(0, 1)) +
-  theme_bw() +
-  theme(axis.line = element_line(linewidth = 0.5),
-        panel.grid = element_blank(),
-        axis.title = element_text(size = 24),
-        axis.text.x = element_text(size = 18, vjust = 0.5),
-        axis.text.y = element_text(size = 18),
-        plot.margin = margin(0.7, 1, 0.7, 0.7, "cm"))
-ggsave(paste0(file_path, subfolder, file_pref, "_6_sim_ep_rep.", file_type), width = 15, height = 10, unit = "cm")
-
-
-## Failure risk time series ----
-summ_risk = summ_cred %>%
-  mutate(risk = 1 - cred)
-ggplot(summ_risk, aes(x = year)) +
-  geom_line(aes(y = risk), size = 1) +
-  scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) + 
-  scale_y_continuous(name = "Failure risk", limits = c(0, 0.5)) + 
-  geom_hline(yintercept = 0.05, color = "red", lty = "dashed", size = 0.5) +
-  {if(type != "expo" & type != "expo_portfolio") geom_vline(xintercept = year_pres_obs - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
-  theme_bw() +
-  theme(axis.line = element_line(linewidth = 0.5),
-        panel.grid = element_blank(),
+        panel.grid.minor = element_blank(),
         axis.title = element_text(size = 22),
         axis.text.x = element_text(size = 18, vjust = 0.5),
-        axis.text.y = element_text(size = 18),
+        axis.text.y = element_text(size = 18, angle = 45),
         plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
-ggsave(paste0(file_path, subfolder, file_pref, "_7_sim_risk_rep.", file_type), width = 15, height = 10, unit = "cm")
+ggsave(paste0(file_path, subfolder, "drawdown_vs_credit.", file_type), width = 10, height = 10, unit = "cm")
+
+data_max_EP = SummariseAcrossTests(max_EP, drawdown_vec)
+ggplot(data = data_max_EP, aes(x = var)) +
+  #    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
+  geom_line(aes(y = mean)) +
+  scale_x_continuous(name = "Drawdown", limits = c(0, 5), breaks = seq(0, 5, by = 1)) + 
+  scale_y_continuous(name = "EP") + 
+  theme_bw() +
+  theme(axis.line = element_line(linewidth = 0.5),
+        panel.grid.minor = element_blank(),
+        axis.title = element_text(size = 22),
+        axis.text.x = element_text(size = 18, vjust = 0.5),
+        axis.text.y = element_text(size = 18, angle = 45),
+        plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
+ggsave(paste0(file_path, subfolder, "drawdown_vs_EP.", file_type), width = 10, height = 10, unit = "cm")
+
+data_risk = SummariseAcrossTests(risk, drawdown_vec)
+ggplot(data = data_risk, aes(x = var)) +
+  #    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
+  geom_line(aes(y = mean)) +
+  geom_hline(yintercept = 0.05, col = "red", lty = "dashed", size = 0.5) +
+  scale_x_continuous(name = "Drawdown", limits = c(0, 5), breaks = seq(0, 5, by = 1)) + 
+  scale_y_continuous(name = "Failure risk", limits = c(0, 0.1)) + 
+  theme_bw() +
+  theme(axis.line = element_line(linewidth = 0.5),
+        panel.grid.minor = element_blank(),
+        axis.title = element_text(size = 22),
+        axis.text.x = element_text(size = 18, vjust = 0.5),
+        axis.text.y = element_text(size = 18, angle = 45),
+        plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
+ggsave(paste0(file_path, subfolder, "drawdown_vs_risk.", file_type), width = 10, height = 10, unit = "cm")
 
 
-# Sensitivity of simulation results to 1/lambda_c ----
-lc_sensitivity = T
-bp_sensitivity = F
-ppr_sensitivity = F
-H_sensitivity = F
-
-file_type = "png"
-
-if(lc_sensitivity) {
-  type = "expo" #expo, project, expo_portfolio, portfolio
-  scale_c_vec = c(seq(1, 10, by = 0.1))
-  
-  mean_credit = matrix(NA, n_rep, length(scale_c_vec))
-  max_EP = matrix(NA, n_rep, length(scale_c_vec))
-  mean_pact = matrix(NA, n_rep, length(scale_c_vec))
-  risk = matrix(NA, n_rep, length(scale_c_vec))
-  
-  for(c_i in 1:length(scale_c_vec)){
-    scale_c = scale_c_vec[c_i]
-    source(paste0(file_path, "carbon_loss_simulations_core.R"))
-    
-    #relationship between 1 / lambda_c and mean of [median of credits] from all years
-    mean_credit[, c_i] = apply(sim_credit, 2, sum) / (H - bp)
-    
-    #relationship between 1 / lambda_c and max EP from all years
-    max_EP[, c_i] = apply(sim_ep, 2, max)
-    
-    #relationship between 1 / lambda_c and credibility (proportion of years without credibility incident)
-    risk[, c_i] = apply(sim_ep[-c(1:bp), ], 2, function(x) length(which(x <= 0)) / (H - bp))
-  }
-  
-  SummariseAcrossTests = function(input, var) {
-    n = nrow(input)
-    output = input %>%
-      t() %>%
-      as.data.frame() %>%
-      rowwise() %>%
-      mutate(mean = mean(c_across(1:n_rep)),
-             sd = sd(c_across(1:n_rep))) %>%
-      ungroup() %>%
-      mutate(var = var,
-             ci_margin = qt(0.975, df = n_rep - 1) * sd / sqrt(n_rep),
-             ci_low = mean - ci_margin,
-             ci_high = mean + ci_margin) %>%
-      select(-all_of(c(1:n)))
-    return(output)
-  }
-  
-  ## Figure 2
-  data_credit = SummariseAcrossTests(mean_credit, scale_c_vec - 1)
-  ggplot(data = data_credit, aes(x = var)) +
-#    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
-    geom_line(aes(y = mean)) +
-    scale_x_continuous(name = "Drawdown", limits = c(0, 5), breaks = seq(0, 5, by = 1)) + 
-    scale_y_continuous(name = "Credits") + 
-    theme_bw() +
-    theme(axis.line = element_line(linewidth = 0.5),
-          panel.grid.minor = element_blank(),
-          axis.title = element_text(size = 22),
-          axis.text.x = element_text(size = 18, vjust = 0.5),
-          axis.text.y = element_text(size = 18, angle = 45),
-          plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
-  ggsave(paste0(file_path, "figure2_drawdown_vs_credit.", file_type), width = 10, height = 10, unit = "cm")
-
-  data_max_EP = SummariseAcrossTests(max_EP, scale_c_vec - 1)
-  ggplot(data = data_max_EP, aes(x = var)) +
-#    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
-    geom_line(aes(y = mean)) +
-    scale_x_continuous(name = "Drawdown", limits = c(0, 5), breaks = seq(0, 5, by = 1)) + 
-    scale_y_continuous(name = "EP") + 
-    theme_bw() +
-    theme(axis.line = element_line(linewidth = 0.5),
-          panel.grid.minor = element_blank(),
-          axis.title = element_text(size = 22),
-          axis.text.x = element_text(size = 18, vjust = 0.5),
-          axis.text.y = element_text(size = 18, angle = 45),
-          plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
-  ggsave(paste0(file_path, "figure2_drawdown_vs_EP.", file_type), width = 10, height = 10, unit = "cm")
-  
-  data_risk = SummariseAcrossTests(risk, scale_c_vec - 1)
-  ggplot(data = data_risk, aes(x = var)) +
-#    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
-    geom_line(aes(y = mean)) +
-    geom_hline(yintercept = 0.05, col = "red", lty = "dashed", size = 0.5) +
-    scale_x_continuous(name = "Drawdown", limits = c(0, 5), breaks = seq(0, 5, by = 1)) + 
-    scale_y_continuous(name = "Failure risk", limits = c(0, 0.1)) + 
-    theme_bw() +
-    theme(axis.line = element_line(linewidth = 0.5),
-          panel.grid.minor = element_blank(),
-          axis.title = element_text(size = 22),
-          axis.text.x = element_text(size = 18, vjust = 0.5),
-          axis.text.y = element_text(size = 18, angle = 45),
-          plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
-  ggsave(paste0(file_path, "figure2_drawdown_vs_risk.", file_type), width = 10, height = 10, unit = "cm")
-}
-
-
-# Sensitivity to warm-up period length ----
-type = "expo" #expo, project, expo_portfolio, portfolio
-lc_sensitivity = F
-bp_sensitivity = T
-ppr_sensitivity = F
-H_sensitivity = F
+## Warm-up period length ----
+type = "hypo"
+hypo_sensit = "warmup" #none, dd_rate, warmup, ppr, H
 n_rep = 1000
 
 a = Sys.time()
+dd_rate_vec = c(1.1, 1.3, 1.5, 1.7)
+warmup_vec = seq(1, 20, by = 1)
+list_summ_risk = vector("list", length(dd_rate_vec))
 
-if(bp_sensitivity) {
-  scale_c_vec = c(1.1, 1.3, 1.5, 1.7)
-  bp_vec = seq(1, 20, by = 1)
-  list_cred = vector("list", length(scale_c_vec))
-  list_summ_cred = vector("list", length(scale_c_vec))
+for(dd_i in 1:length(dd_rate_vec)){
+  dd_rate = dd_rate_vec[dd_i]
   
-  for(c_i in 1:length(scale_c_vec)){
-    scale_c = scale_c_vec[c_i]
+  mean_credit = matrix(NA, n_rep, length(warmup_vec))
+  max_EP = matrix(NA, n_rep, length(warmup_vec))
+  final_EP = matrix(NA, n_rep, length(warmup_vec))
+  risk = matrix(NA, n_rep, length(warmup_vec))
+  
+  for(w_i in 1:length(warmup_vec)){
+    bp = warmup_vec[w_i]
+    source(paste0(file_path, "carbon_loss_simulations_core.R"))
     
-#    plot_bp = ifelse(scale_c %in% seq(1.1, 1.7, by = 1), T, F)
+    #mean of credits from all years (except warm-up period)
+    #mean_credit[, w_i] = apply(sim_credit, 2, sum) / (H - bp)
     
-    mean_credit = matrix(NA, n_rep, length(bp_vec))
-    max_EP = matrix(NA, n_rep, length(bp_vec))
-    final_EP = matrix(NA, n_rep, length(bp_vec))
-    cred = matrix(NA, n_rep, length(bp_vec))
+    #max EP from all years
+    #max_EP[, w_i] = apply(sim_ep, 2, max)
     
-    for(bp_i in 1:length(bp_vec)){
-      bp = bp_vec[bp_i]
-      source(paste0(file_path, "carbon_loss_simulations_core.R"))
-      
-      #relationship between 1 / lambda_c and mean of [median of credits] from all years
-      mean_credit[, bp_i] = apply(sim_credit, 2, sum) / (H - bp)
-      
-      #relationship between 1 / lambda_c and max EP from all years
-      max_EP[, bp_i] = apply(sim_ep, 2, max)
-      
-      #relationship between 1 / lambda_c and credibility (proportion of years without credibility incident)
-      cred[, bp_i] = apply(sim_ep[-c(1:bp), ], 2, function(x) length(which(x > 0)) / (H - bp))
-    }
-    
-    SummariseAcrossTests = function(input, var) {
-      n = nrow(input)
-      output = input %>% 
-        t() %>%
-        as.data.frame() %>%
-        rowwise() %>% 
-        mutate(mean = mean(c_across(1:n_rep)),
-               sd = sd(c_across(1:n_rep))) %>%
-        ungroup() %>%
-        mutate(var = var,
-               ci_margin = qt(0.975, df = n_rep - 1) * sd / sqrt(n_rep),
-               ci_low = mean - ci_margin,
-               ci_high = mean + ci_margin) %>%
-        select(-all_of(c(1:n)))
-      return(output)
-    }
-    
-    ## Figures
-    data_credit = SummariseAcrossTests(mean_credit, bp_vec)
-    data_max_EP = SummariseAcrossTests(max_EP, bp_vec)
-    
-    list_cred[[c_i]] = cred
-    list_summ_cred[[c_i]] = SummariseAcrossTests(cred, bp_vec) %>%
-      mutate(scale_c = scale_c)
+    #per-repetition failure risk (proportion of years without positive credit)
+    risk[, w_i] = apply(sim_failure, 2, sum) / (H - bp)
   }
+  
+  ## Figures
+  data_credit = SummariseAcrossTests(mean_credit, warmup_vec)
+  data_max_EP = SummariseAcrossTests(max_EP, warmup_vec)
+  
+  list_summ_risk[[dd_i]] = SummariseAcrossTests(risk, warmup_vec) %>%
+    mutate(dd_rate = dd_rate)
 }
 b = Sys.time()
 b - a
 
-summ_risk = do.call(rbind, list_summ_cred) %>%
-  mutate(ci_low = 1 - ci_low, ci_high = 1 - ci_high, mean = 1 - mean, scale_c = as.factor(scale_c))
+summ_risk = do.call(rbind, list_summ_risk) %>%
+  mutate(dd_rate = as.factor(dd_rate))
 
 
-#bp length vs failure risk, each curve is a scale_c
-ggplot(data = summ_risk, aes(x = var, group = scale_c)) +
-  geom_ribbon(aes(ymin = ci_low, ymax = ci_high, fill = scale_c), alpha = 0.3) +
-  geom_line(aes(y = mean, color = scale_c), size = 0.5) +
+#bp length vs failure risk, each curve corresponds to a drawdown rate
+ggplot(data = summ_risk, aes(x = var, group = dd_rate)) +
+  geom_ribbon(aes(ymin = ci_low, ymax = ci_high, fill = dd_rate), alpha = 0.3) +
+  geom_line(aes(y = mean, color = dd_rate), size = 0.5) +
   geom_hline(yintercept = 0.05, color = "red", lty = "dashed", size = 1) +
   scale_x_continuous(name = "Warm-up period (years)") + 
   scale_y_continuous(name = "Failure risk", limits = c(0, 0.2)) + 
@@ -419,150 +388,101 @@ ggplot(data = summ_risk, aes(x = var, group = scale_c)) +
         axis.text.x = element_text(size = 18, vjust = 0.5),
         axis.text.y = element_text(size = 18, angle = 45),
         plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
-ggsave(paste0(file_path, subfolder, "sensit_wupl_vs_risk_by_scale_c.", file_type), width = 20, height = 15, unit = "cm")
+ggsave(paste0(file_path, subfolder, "warmup_vs_risk_grouped_drawdown.", file_type), width = 20, height = 15, unit = "cm")
 
 
-# Sensitivity to post-project release level ----
-type = "expo" #expo, project, expo_portfolio, portfolio
-lc_sensitivity = F
-bp_sensitivity = F
-ppr_sensitivity = T
-H_sensitivity = F
+## Post-project release rate ----
+type = "hypo"
+hypo_sensit = "ppr" #none, dd_rate, warmup, ppr, H
 n_rep = 100
+dd_rate = 1.3
+bp = 5
+ppr_vec = seq(1, 5, by = 0.1)
 
-if(ppr_sensitivity) {
-  scale_c = 1.3 #5, 10: "good" project, 1.3: "bad" project
-  bp = 5
-  ppr_vec = seq(1, 5, by = 0.1)
+mean_credit = matrix(NA, n_rep, length(ppr_vec))
+max_EP = matrix(NA, n_rep, length(ppr_vec))
+final_EP = matrix(NA, n_rep, length(ppr_vec))
+mean_cred = matrix(NA, n_rep, length(ppr_vec))
 
-  mean_credit = matrix(NA, n_rep, length(ppr_vec))
-  max_EP = matrix(NA, n_rep, length(ppr_vec))
-  final_EP = matrix(NA, n_rep, length(ppr_vec))
-  mean_cred = matrix(NA, n_rep, length(ppr_vec))
+for(ppr_i in 1:length(ppr_vec)){
+  rate_postproj = ppr_vec[ppr_i]
   
-  for(ppr_i in 1:length(ppr_vec)){
-    a = Sys.time()
-    rate_postproj = ppr_vec[ppr_i]
-    
-    source(paste0(file_path, "carbon_loss_simulations_core.R"))
-    
-    #relationship between 1 / lambda_c and mean of [median of credits] from all years
-    #mean_credit[, ppr_i] = apply(sim_credit, 2, sum) / (H - bp)
-    
-    #relationship between 1 / lambda_c and max EP from all years
-    max_EP[, ppr_i] = apply(sim_ep, 2, max)
-    
-    #relationship between 1 / lambda_c and credibility (proportion of years without credibility incident)
-    #mean_cred[, ppr_i] = apply(sim_ep[-c(1:bp), ], 2, function(x) length(which(x > 0)) / (H - bp))
-    b = Sys.time()
-    b - a
-  }
+  source(paste0(file_path, "carbon_loss_simulations_core.R"))
   
-  SummariseAcrossTests = function(input, var) {
-    n = nrow(input)
-    output = input %>% 
-      t() %>%
-      as.data.frame() %>%
-      rowwise() %>% 
-      mutate(mean = mean(c_across(1:n_rep)),
-             sd = sd(c_across(1:n_rep))) %>%
-      ungroup() %>%
-      mutate(var = var,
-             ci_margin = qt(0.975, df = n_rep - 1) * sd / sqrt(n_rep),
-             ci_low = mean - ci_margin,
-             ci_high = mean + ci_margin) %>%
-      select(-all_of(c(1:n)))
-    return(output)
-  }
+  #mean of credits from all years (except the warm-up period)
+  #mean_credit[, ppr_i] = apply(sim_credit, 2, sum) / (H - bp)
   
-  ## Figures
-  data_max_EP = SummariseAcrossTests(max_EP, ppr_vec * scale_c)
-
-  ggplot(data = data_max_EP, aes(x = var)) +
-#    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
-    geom_line(aes(y = mean), size = 1) +
-    scale_y_continuous(limits = c(0, 0.75)) + 
-    xlab(label = "Post-project release rate") + 
-    ylab(label = "EP") + 
-    theme_bw() +
-    theme(axis.line = element_line(linewidth = 0.5),
-          panel.grid.minor = element_blank(),
-          axis.title.x = element_text(size = 16),
-          axis.title.y = element_text(size = 22),
-          axis.text.x = element_text(size = 14, vjust = 0.5),
-          axis.text.y = element_text(size = 14),
-          plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
-  ggsave(paste0(file_path, subfolder, "sensit_ppr_vs_EP.", file_type), width = 15, height = 10, unit = "cm")
+  #max EP from all years
+  max_EP[, ppr_i] = apply(sim_ep, 2, max)
+  
+  #per-repetition failure risk (proportion of years without positive credit)
+  #risk[, ppr_i] = apply(sim_failure, 2, sum) / (H - bp)
 }
 
+## Figures
+data_max_EP = SummariseAcrossTests(max_EP, ppr_vec * dd_rate)
 
-# Sensitivity to project length ----
-type = "expo" #expo, project, expo_portfolio, portfolio
-lc_sensitivity = F
-bp_sensitivity = F
-ppr_sensitivity = F
-H_sensitivity = T
+ggplot(data = data_max_EP, aes(x = var)) +
+  #    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
+  geom_line(aes(y = mean), size = 1) +
+  scale_y_continuous(limits = c(0, 0.75)) + 
+  xlab(label = "Post-project release rate") + 
+  ylab(label = "EP") + 
+  theme_bw() +
+  theme(axis.line = element_line(linewidth = 0.5),
+        panel.grid.minor = element_blank(),
+        axis.title.x = element_text(size = 16),
+        axis.title.y = element_text(size = 22),
+        axis.text.x = element_text(size = 14, vjust = 0.5),
+        axis.text.y = element_text(size = 14),
+        plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
+ggsave(paste0(file_path, subfolder, "ppr_vs_EP.", file_type), width = 15, height = 10, unit = "cm")
+
+
+## Project duration ----
+type = "hypo"
+hypo_sensit = "H" #none, dd_rate, warmup, ppr, H
 n_rep = 100
+dd_rate = 1.3
+bp = 5
+rate_postproj = 2
+H_vec = seq(10, 100, by = 5)
 
-if(H_sensitivity) {
-  scale_c = 1.3 #5, 10: "good" project, 1.3: "bad" project
-  bp = 5
-  rate_postproj = 2
-  H_vec = seq(10, 100, by = 5)
+mean_credit = matrix(NA, n_rep, length(H_vec))
+max_EP = matrix(NA, n_rep, length(H_vec))
+final_EP = matrix(NA, n_rep, length(H_vec))
+mean_cred = matrix(NA, n_rep, length(H_vec))
+
+for(H_i in 1:length(H_vec)){
+  H = H_vec[H_i]
   
-  mean_credit = matrix(NA, n_rep, length(H_vec))
-  max_EP = matrix(NA, n_rep, length(H_vec))
-  final_EP = matrix(NA, n_rep, length(H_vec))
-  mean_cred = matrix(NA, n_rep, length(H_vec))
+  source(paste0(file_path, "carbon_loss_simulations_core.R"))
   
-  for(H_i in 1:length(H_vec)){
-    H = H_vec[H_i]
-    
-    source(paste0(file_path, "carbon_loss_simulations_core.R"))
-    
-    #relationship between 1 / lambda_c and mean of [median of credits] from all years
-    #mean_credit[, ppr_i] = apply(sim_credit, 2, sum) / (H - bp)
-    
-    #relationship between 1 / lambda_c and max EP from all years
-    max_EP[, H_i] = apply(sim_ep, 2, max)
-    
-    #relationship between 1 / lambda_c and credibility (proportion of years without credibility incident)
-    #mean_cred[, ppr_i] = apply(sim_ep[-c(1:bp), ], 2, function(x) length(which(x > 0)) / (H - bp))
-  }
+  #mean of credits from all years (except the warm-up period)
+  #mean_credit[, ppr_i] = apply(sim_credit, 2, sum) / (H - bp)
   
-  SummariseAcrossTests = function(input, var) {
-    n = nrow(input)
-    output = input %>% 
-      t() %>%
-      as.data.frame() %>%
-      rowwise() %>% 
-      mutate(mean = mean(c_across(1:n_rep)),
-             sd = sd(c_across(1:n_rep))) %>%
-      ungroup() %>%
-      mutate(var = var,
-             ci_margin = qt(0.975, df = n_rep - 1) * sd / sqrt(n_rep),
-             ci_low = mean - ci_margin,
-             ci_high = mean + ci_margin) %>%
-      select(-all_of(c(1:n)))
-    return(output)
-  }
+  #max EP from all years
+  max_EP[, H_i] = apply(sim_ep, 2, max)
   
-  ## Figures
-  data_max_EP = SummariseAcrossTests(max_EP, H_vec)
-  
-  ggplot(data = data_max_EP, aes(x = var)) +
-    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
-    geom_line(aes(y = mean), size = 1) +
-    scale_y_continuous(limits = c(0, 0.75)) + 
-    xlab(label = "Project duration") + 
-    ylab(label = "EP") + 
-    theme_bw() +
-    theme(axis.line = element_line(linewidth = 0.5),
-          panel.grid.minor = element_blank(),
-          axis.title.x = element_text(size = 16),
-          axis.title.y = element_text(size = 22),
-          axis.text.x = element_text(size = 14, vjust = 0.5),
-          axis.text.y = element_text(size = 14),
-          plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
-  ggsave(paste0(file_path, subfolder, "sensit_proj_len_vs_EP.", file_type), width = 15, height = 10, unit = "cm")
+  #per-repetition failure risk (proportion of years without positive credit)
+  #risk[, ppr_i] = apply(sim_failure, 2, sum) / (H - bp)
 }
+
+## Figures
+data_max_EP = SummariseAcrossTests(max_EP, H_vec)
+
+ggplot(data = data_max_EP, aes(x = var)) +
+  geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
+  geom_line(aes(y = mean), size = 1) +
+  scale_y_continuous(limits = c(0, 0.75)) + 
+  xlab(label = "Project duration") + 
+  ylab(label = "EP") + 
+  theme_bw() +
+  theme(axis.line = element_line(linewidth = 0.5),
+        panel.grid.minor = element_blank(),
+        axis.title.x = element_text(size = 16),
+        axis.title.y = element_text(size = 22),
+        axis.text.x = element_text(size = 14, vjust = 0.5),
+        axis.text.y = element_text(size = 14),
+        plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
+ggsave(paste0(file_path, subfolder, "H_vs_EP.", file_type), width = 15, height = 10, unit = "cm")
