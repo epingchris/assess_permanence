@@ -369,7 +369,7 @@ ggplot(as.data.frame(sim_ep) %>% replace(., . == 0, NA) %>% mutate(t = row_numbe
   geom_hline(yintercept = 0, size = 1, color = "black") +
   geom_vline(xintercept = max(absloss_p_init$year) - t0 + 1, lty = "dotted") +
   scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) + 
-  scale_y_continuous(name = "eP", limits = c(0, 1)) + 
+  scale_y_continuous(name = "EP", limits = c(0, 1)) + 
   theme_bw() +
   theme(axis.line = element_line(linewidth = 0.5),
         panel.grid.minor = element_blank(),
@@ -385,7 +385,7 @@ ggplot(summary_ep, aes(x = year)) +
   geom_line(data = . %>% dplyr::select(year, median), aes(y = median), size = 0.5, color = "red") +
   geom_vline(xintercept = max(absloss_p_init$year) - t0 + 1, lty = "dotted") +
   scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) + 
-  scale_y_continuous(name = "eP", limits = c(0, 1)) + 
+  scale_y_continuous(name = "EP", limits = c(0, 1)) + 
   theme_bw() +
   theme(axis.line = element_line(linewidth = 0.5),
         panel.grid.minor = element_blank(),
