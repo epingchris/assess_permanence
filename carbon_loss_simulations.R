@@ -8,39 +8,41 @@ file_path = "C:/Users/epr26/OneDrive - University of Cambridge/carbon_release_pa
 
 #set simulation type (hypothetical or real-life, single or aggregated)
 type = "real_aggr" #hypo, real, hypo_aggr, real_aggr
-dd_rate = 5  #1.1, 2, 5
+dd_rate = 2  #1.1, 2, 5
 hypo_sensit = "none" #none, dd_rate, warmup, ppr, H
 hypo_aggr_type = "C" #A, B, C
 real_aggr_type = "three" #five, four, three
-project_site = "VCS_934" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
-use_theo = T #T, F; type == hypo_aggr will override this and set use_theo as F
+project_site = "Gola_country" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
+use_theo = T #T, F; type != hypo will override this and set use_theo as F
 file_type = "png" #png, pdf
 view_snapshot = F
 print_allrep = F #print real trajectories of all 100 repetitions
 
 #basic parameters
 omega = 0.05
-
-#parameters for the simulations
 n_rep = 100 #number of repetitions
 H = 50 #evaluation horizon; project duration
 D = 0.03 #discount rate
-bp = 5 #buffer period
-rate_postproj = 2 #rate of post-project release compare to during project
+warmup = 5 #warm-up period
+postproject_ratio = 2 #ratio of post-project release compare to during project
 
 
 # SCC ----
-scc_new = read.csv(file = paste0(file_path, "scc_newpipeline.csv"))
-lm_scc = lm(log(central) ~ year, data = scc_new)
-scc_extrap1 = data.frame(year = 2000:2009)
-scc_extrap2 = data.frame(year = 2101:2500)
-scc_extrap1$central = exp(predict(lm_scc, newdata = scc_extrap1, se.fit = T)$fit)
-scc_extrap2$central = exp(predict(lm_scc, newdata = scc_extrap2, se.fit = T)$fit)
-scc_extrap = rbind(scc_extrap1, dplyr::select(scc_new, c("year", "central")), scc_extrap2) %>%
+scc = read.csv(file = paste0(file_path, "scc_newpipeline.csv"))
+year_range_scc = range(scc$year)
+year_min_scc = 2000
+year_max_scc = 2500
+lm_scc = lm(log(central) ~ year, data = scc)
+scc_before = data.frame(year = year_min_scc:(year_range_scc[1] - 1)) %>%
+  mutate(central = exp(predict(lm_scc, newdata = ., se.fit = T)$fit)) %>%
   mutate(low = central * 0.5, high = central * 1.5) %>%
   relocate(c(1, 3, 2, 4))
-year_max = max(scc_extrap$year)
-write.csv(scc_extrap, file = paste0(file_path, "scc_extrap.csv"))
+scc_after = data.frame(year = (year_range_scc[2] + 1):year_max_scc) %>%
+  mutate(central = exp(predict(lm_scc, newdata = ., se.fit = T)$fit)) %>%
+  mutate(low = central * 0.5, high = central * 1.5) %>%
+  relocate(c(1, 3, 2, 4))
+scc_extended = rbind(scc_before, scc, scc_after)
+write.csv(scc_extended, file = paste0(file_path, "scc_extended.csv"))
 
 # Functions ----
 makeFlux = function(project_series, leakage_series){
@@ -101,7 +103,6 @@ SampGMM = function(mclust_obj, n) {
 # Core code for the simulation ----
 source(paste0(file_path, "carbon_loss_simulations_core.R"))
 
-
 # Plot results ----
 yr_label = c(1, seq(H / 10, H, by = H / 10))
 
@@ -120,7 +121,7 @@ ggplot(summ_credit, aes(x = year)) +
   geom_ribbon(data = . %>% dplyr::select(year, p25, p75), aes(ymin = p25, ymax = p75), fill = "darkgray", alpha = 0.5) +
   geom_line(data = . %>% dplyr::select(year, median), aes(y = median), size = 1, color = "black") +
   geom_hline(yintercept = 0, size = 0.5, color = "black") +
-  {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_pres_obs - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
+  {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_expost - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
   scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
   scale_y_continuous(name = expression("Credits (Mg CO"[2]*")"), limits = range_credit) +
   theme_bw() +
@@ -137,7 +138,7 @@ ggplot(summ_ep, aes(x = year)) +
   geom_ribbon(data = . %>% dplyr::select(year, p05, p95), aes(ymin = p05, ymax = p95), fill = "lightgray", alpha = 0.5) +
   geom_ribbon(data = . %>% dplyr::select(year, p25, p75), aes(ymin = p25, ymax = p75), fill = "darkgray", alpha = 0.5) +
   geom_line(data = . %>% dplyr::select(year, median), aes(y = median), size = 1, color = "black") +
-  {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_pres_obs - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
+  {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_expost - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
   scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
   scale_y_continuous(name = "EP", limits = c(0, 1)) +
   theme_bw() +
@@ -155,7 +156,7 @@ ggplot(summ_risk, aes(x = year)) +
   scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) + 
   scale_y_continuous(name = "Failure risk", limits = c(0, 0.5)) + 
   geom_hline(yintercept = 0.05, color = "red", lty = "dashed", size = 0.5) +
-  {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_pres_obs - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
+  {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_expost - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
   theme_bw() +
   theme(axis.line = element_line(linewidth = 0.5),
         panel.grid = element_blank(),
@@ -182,7 +183,7 @@ sim_ep_long = sim_ep %>%
 ggplot(sim_credit_long) +
   geom_line(aes(x = t, y = val, color = rep), size = 0.5, show.legend = F) +
   geom_hline(yintercept = 0, size = 1, color = "black") +
-  {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_pres_obs - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
+  {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_expost - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
   scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
   scale_y_continuous(name = expression("Credits (Mg CO"[2]*")"), limits = range_credit) +
   theme_bw() +
@@ -198,7 +199,7 @@ ggsave(paste0(file_path, subfolder, file_pref, "_allrep_credit.", file_type), wi
 ggplot(sim_ep_long) +
   geom_line(aes(x = t, y = val, col = rep), size = 0.5, show.legend = F) +
   geom_hline(yintercept = 0, size = 0.5, color = "black") +
-  {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_pres_obs - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
+  {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_expost - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
   scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
   scale_y_continuous(name = "EP", limits = c(0, 1)) +
   theme_bw() +
@@ -266,13 +267,13 @@ for(dd_i in 1:length(dd_rate_vec)){
   source(paste0(file_path, "carbon_loss_simulations_core.R"))
   
   #mean of credits from all years (except warm-up period)
-  mean_credit[, dd_i] = apply(sim_credit, 2, sum) / (H - bp)
+  mean_credit[, dd_i] = apply(sim_credit, 2, sum) / (H - warmup)
   
   #max EP from all years
   max_EP[, dd_i] = apply(sim_ep, 2, max)
   
   #per-repetition failure risk (proportion of years without positive credit)
-  risk[, dd_i] = apply(sim_failure, 2, sum) / (H - bp)
+  risk[, dd_i] = apply(sim_failure, 2, sum) / (H - warmup)
 }
 
 ## Figure 2
@@ -343,17 +344,17 @@ for(dd_i in 1:length(dd_rate_vec)){
   risk = matrix(NA, n_rep, length(warmup_vec))
   
   for(w_i in 1:length(warmup_vec)){
-    bp = warmup_vec[w_i]
+    warmup = warmup_vec[w_i]
     source(paste0(file_path, "carbon_loss_simulations_core.R"))
     
     #mean of credits from all years (except warm-up period)
-    #mean_credit[, w_i] = apply(sim_credit, 2, sum) / (H - bp)
+    #mean_credit[, w_i] = apply(sim_credit, 2, sum) / (H - warmup)
     
     #max EP from all years
     #max_EP[, w_i] = apply(sim_ep, 2, max)
     
     #per-repetition failure risk (proportion of years without positive credit)
-    risk[, w_i] = apply(sim_failure, 2, sum) / (H - bp)
+    risk[, w_i] = apply(sim_failure, 2, sum) / (H - warmup)
   }
   
   ## Figures
@@ -370,7 +371,7 @@ summ_risk = do.call(rbind, list_summ_risk) %>%
   mutate(dd_rate = as.factor(dd_rate))
 
 
-#bp length vs failure risk, each curve corresponds to a drawdown rate
+#warm-up period length vs failure risk, each curve corresponds to a drawdown rate
 ggplot(data = summ_risk, aes(x = var, group = dd_rate)) +
   geom_ribbon(aes(ymin = ci_low, ymax = ci_high, fill = dd_rate), alpha = 0.3) +
   geom_line(aes(y = mean, color = dd_rate), size = 0.5) +
@@ -396,7 +397,7 @@ type = "hypo"
 hypo_sensit = "ppr" #none, dd_rate, warmup, ppr, H
 n_rep = 100
 dd_rate = 1.3
-bp = 5
+warmup = 5
 ppr_vec = seq(1, 5, by = 0.1)
 
 mean_credit = matrix(NA, n_rep, length(ppr_vec))
@@ -405,18 +406,18 @@ final_EP = matrix(NA, n_rep, length(ppr_vec))
 mean_cred = matrix(NA, n_rep, length(ppr_vec))
 
 for(ppr_i in 1:length(ppr_vec)){
-  rate_postproj = ppr_vec[ppr_i]
+  postproject_ratio = ppr_vec[ppr_i]
   
   source(paste0(file_path, "carbon_loss_simulations_core.R"))
   
   #mean of credits from all years (except the warm-up period)
-  #mean_credit[, ppr_i] = apply(sim_credit, 2, sum) / (H - bp)
+  #mean_credit[, ppr_i] = apply(sim_credit, 2, sum) / (H - warmup)
   
   #max EP from all years
   max_EP[, ppr_i] = apply(sim_ep, 2, max)
   
   #per-repetition failure risk (proportion of years without positive credit)
-  #risk[, ppr_i] = apply(sim_failure, 2, sum) / (H - bp)
+  #risk[, ppr_i] = apply(sim_failure, 2, sum) / (H - warmup)
 }
 
 ## Figures
@@ -444,8 +445,8 @@ type = "hypo"
 hypo_sensit = "H" #none, dd_rate, warmup, ppr, H
 n_rep = 100
 dd_rate = 1.3
-bp = 5
-rate_postproj = 2
+warmup = 5
+postproject_ratio = 2
 H_vec = seq(10, 100, by = 5)
 
 mean_credit = matrix(NA, n_rep, length(H_vec))
@@ -459,13 +460,13 @@ for(H_i in 1:length(H_vec)){
   source(paste0(file_path, "carbon_loss_simulations_core.R"))
   
   #mean of credits from all years (except the warm-up period)
-  #mean_credit[, ppr_i] = apply(sim_credit, 2, sum) / (H - bp)
+  #mean_credit[, ppr_i] = apply(sim_credit, 2, sum) / (H - warmup)
   
   #max EP from all years
   max_EP[, H_i] = apply(sim_ep, 2, max)
   
   #per-repetition failure risk (proportion of years without positive credit)
-  #risk[, ppr_i] = apply(sim_failure, 2, sum) / (H - bp)
+  #risk[, ppr_i] = apply(sim_failure, 2, sum) / (H - warmup)
 }
 
 ## Figures
