@@ -4,10 +4,10 @@ library(magrittr)
 library(mclust)
 file_path = "C:/Users/epr26/OneDrive - University of Cambridge/carbon_release_pattern/"
 
-# Simulation settings ----
+# Settings ----
 
-#set simulation type (hypothetical or real-life, single or aggregated)
-type = "real_aggr" #hypo, real, hypo_aggr, real_aggr
+#simulation type (hypothetical or real-life, single or aggregated)
+type = "real" #hypo, real, hypo_aggr, real_aggr
 dd_rate = 2  #1.1, 2, 5
 hypo_sensit = "none" #none, dd_rate, warmup, ppr, H
 hypo_aggr_type = "C" #A, B, C
@@ -26,79 +26,9 @@ D = 0.03 #discount rate
 warmup = 5 #warm-up period
 postproject_ratio = 2 #ratio of post-project release compare to during project
 
-
-# SCC ----
-scc = read.csv(file = paste0(file_path, "scc_newpipeline.csv"))
-year_range_scc = range(scc$year)
-year_min_scc = 2000
-year_max_scc = 2500
-lm_scc = lm(log(central) ~ year, data = scc)
-scc_before = data.frame(year = year_min_scc:(year_range_scc[1] - 1)) %>%
-  mutate(central = exp(predict(lm_scc, newdata = ., se.fit = T)$fit)) %>%
-  mutate(low = central * 0.5, high = central * 1.5) %>%
-  relocate(c(1, 3, 2, 4))
-scc_after = data.frame(year = (year_range_scc[2] + 1):year_max_scc) %>%
-  mutate(central = exp(predict(lm_scc, newdata = ., se.fit = T)$fit)) %>%
-  mutate(low = central * 0.5, high = central * 1.5) %>%
-  relocate(c(1, 3, 2, 4))
-scc_extended = rbind(scc_before, scc, scc_after)
-write.csv(scc_extended, file = paste0(file_path, "scc_extended.csv"))
-
-# Functions ----
-makeFlux = function(project_series, leakage_series){
-  stock_series = aggregate(class_co2e ~ treatment + year, subset(project_series, class %in% eval_classes), FUN = sum)
-  stock_wide = as.data.frame(pivot_wider(stock_series, id_cols = year, names_from = "treatment", values_from = "class_co2e"))
-  
-  flux_series = data.frame(year = stock_wide$year[-1],
-                           treatment_proj = diff(subset(stock_series, treatment == "treatment")$class_co2e),
-                           control_proj = diff(subset(stock_series, treatment == "control")$class_co2e)) %>%
-    mutate(additionality = treatment_proj - control_proj)
-  if(!is.null(leakage_series)){
-    leakage_aggr = aggregate(class_co2e ~ treatment + year, subset(leakage_series, class %in% eval_classes), FUN = sum)
-    flux_series %<>%
-      mutate(treatment_leak = diff(subset(leakage_aggr, treatment == "treatment")$class_co2e),
-             control_leak = diff(subset(leakage_aggr, treatment == "control")$class_co2e)) %>%
-      mutate(leakage = treatment_leak - control_leak)
-  }
-  return(list(stock = stock_wide, flux = flux_series))
-}
-
-summariseSeries = function(in_list, sel_col){
-  df = as.data.frame(sapply(in_list, function(x) x[, sel_col])) %>%
-    `colnames<-`(paste0("V", 1:20)) %>%
-    rowwise() %>%
-    mutate(mean = mean(V1:V20)) %>%
-    ungroup() %>%
-    mutate(year = in_list[[1]]$year, var = sel_col) %>%
-    pivot_longer(V1:mean, names_to = "series", values_to = "val")
-  return(df)
-}
-
-#wrapper function to fit using GMM and generate random samples from GMM-fitted distributions
-FitGMM = function(x) {
-  if(length(x) > 0) {
-    return(mclust::Mclust(x, 2, verbose = F))
-  } else {
-    return(NULL)
-  }
-}
-
-SampGMM = function(mclust_obj, n) {
-  if(!is.null(mclust_obj)) {
-    params = mclust_obj$param
-  } else {
-    return(NA)
-  }
-  if(length(params$variance$sigmasq) == 1) params$variance$sigmasq[2] = params$variance$sigmasq[1]
-  samp_vec = NULL
-  while(length(samp_vec) < n) {
-    distr_chosen = ifelse(runif(1) <= params$pro[1], 1, 2)
-    val = rnorm(1, mean = params$mean[distr_chosen], sd = sqrt(params$variance$sigmasq[distr_chosen]))
-    if(val > 0) samp_vec = c(samp_vec, val)
-  }
-  return(samp_vec)
-}
-
+#SCC
+scc_extended = read.csv(paste0(file_path, "scc_extended.csv"), row.names = 1)
+year_max_scc = max(scc_extended$year)
 
 # Core code for the simulation ----
 source(paste0(file_path, "carbon_loss_simulations_core.R"))

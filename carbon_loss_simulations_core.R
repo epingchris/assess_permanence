@@ -1,3 +1,49 @@
+# Functions ----
+makeFlux = function(in_df){
+  stock_series = aggregate(class_co2e ~ treatment + year, subset(in_df, class %in% eval_classes), FUN = sum)
+  stock_wide = as.data.frame(pivot_wider(stock_series, id_cols = year, names_from = "treatment", values_from = "class_co2e"))
+  
+  flux_series = data.frame(year = stock_wide$year[-1],
+                           treatment_proj = diff(subset(stock_series, treatment == "treatment")$class_co2e),
+                           control_proj = diff(subset(stock_series, treatment == "control")$class_co2e)) %>%
+    mutate(additionality = treatment_proj - control_proj)
+  return(flux_series)
+}
+
+mergeSeries = function(in_list){
+  lapply(seq_along(in_list), function(i) {
+    in_list[[i]] %>%
+      pivot_longer(2:4, names_to = "var", values_to = "val") %>%
+      mutate(series = paste0("V", i))}) %>%
+    do.call(rbind, .)
+}
+
+#wrapper function to fit using GMM and generate random samples from GMM-fitted distributions
+FitGMM = function(x) {
+  if(length(x) <= 0) {
+    return(NULL)
+  }
+  
+  mclust::Mclust(x, 2, verbose = F)
+}
+
+SampGMM = function(mclust_obj, n) {
+  if(is.null(mclust_obj)) {
+    return(NA)
+  }
+
+  params = mclust_obj$param
+  if(length(params$variance$sigmasq) == 1) params$variance$sigmasq[2] = params$variance$sigmasq[1]
+  samp_vec = NULL
+  while(length(samp_vec) < n) {
+    distr_chosen = ifelse(runif(1) <= params$pro[1], 1, 2)
+    val = rnorm(1, mean = params$mean[distr_chosen], sd = sqrt(params$variance$sigmasq[distr_chosen]))
+    if(val > 0) samp_vec = c(samp_vec, val)
+  }
+  return(samp_vec)
+}
+
+
 # Set input parameters ----
 
 ## A. Hypothetical projects ----
@@ -20,23 +66,20 @@ if(type == "hypo") {
   aomega = 1 / lambdaP * log(omega * (lambdaP + lambdaC) / lambdaC) #analytical solution
 
   #input: t0, year_expost, lambdaP/C, expost_lossP/C, postproject_release, aomega
+  
 ## B. Real-life projects ----
 } else if(type == "real") {
   use_theo = F
   load(file = paste0(file_path, "project_input_data/", project_site, ".Rdata")) #t0 included
   
-  flux_series_sim = mapply(function(x, y) makeFlux(project_series = x, leakage_series = y)$flux,
-                           x = agb_series_project_sim,
-                           y = vector("list", length = length(agb_series_project_sim)),
-                           SIMPLIFY = F)
-  summ_flux = rbind(summariseSeries(flux_series_sim, "treatment_proj"),
-                    summariseSeries(flux_series_sim, "control_proj"))
-  year_expost = max(summ_flux$year)
+  flux_series = lapply(agb_series_project_sim, makeFlux)
+  flux_series_merged = mergeSeries(flux_series)
+  year_expost = max(flux_series_merged$year)
   
-  absloss_p_init = summ_flux %>%
+  absloss_p_init = flux_series_merged %>%
     subset(var == "treatment_proj" & year >= t0 & series != "mean") %>%
     mutate(val = val * (-1), var = NULL, series = NULL)
-  absloss_c_init = summ_flux %>%
+  absloss_c_init = flux_series_merged %>%
     subset(var == "control_proj" & year >= t0 & series != "mean") %>%
     mutate(val = val * (-1), var = NULL, series = NULL)
   
@@ -99,28 +142,22 @@ if(type == "hypo") {
                  "four" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396", "VCS_934"),
                  "three" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396"))
   
-  summ_flux = vector("list", length(sites))
+  flux_series_merged_list = vector("list", length(sites))
   absloss_p_init_list = vector("list", length(sites))
   absloss_c_init_list = vector("list", length(sites))
   t0_vec = rep(NA, length(sites))
   
-  for(s in sites){
-    i = which(sites %in% s)
-    load(file = paste0(file_path, "project_input_data/", s, ".Rdata")) #load data
+  for(i in seq_along(sites)){
+    load(file = paste0(file_path, "project_input_data/", sites[i], ".Rdata")) #load data
     t0_vec[i] = t0
     
-    flux_series_sim = mapply(function(x, y) makeFlux(project_series = x, leakage_series = y)$flux,
-                             x = agb_series_project_sim,
-                             y = vector("list", length = length(agb_series_project_sim)),
-                             SIMPLIFY = F)
-    
-    summ_flux[[i]] = rbind(summariseSeries(flux_series_sim, "treatment_proj"),
-                           summariseSeries(flux_series_sim, "control_proj"))
-    
-    absloss_p_init_list[[i]] = summ_flux[[i]] %>%
+    flux_series = lapply(agb_series_project_sim, makeFlux)
+    flux_series_merged_list[[i]] = mergeSeries(flux_series)
+
+    absloss_p_init_list[[i]] = flux_series_merged_list[[i]] %>%
       subset(var == "treatment_proj" & year >= t0 & series != "mean") %>%
       mutate(val = val * (-1), var = NULL, series = NULL)
-    absloss_c_init_list[[i]] = summ_flux[[i]] %>%
+    absloss_c_init_list[[i]] = flux_series_merged_list[[i]] %>%
       subset(var == "control_proj" & year >= t0 & series != "mean") %>%
       mutate(val = val * (-1), var = NULL, series = NULL)
   }
@@ -431,7 +468,7 @@ if(type == "hypo") {
   summ = list(type = type,
               sensitivity = hypo_sensit,
               project = project_site,
-              flux = summ_flux,
+              flux = flux_series_merged,
               t0 = t0,
               additionality = summ_additionality,
               credit = summ_credit,
@@ -455,7 +492,7 @@ if(type == "hypo") {
   summ = list(type = type,
               sensitivity = hypo_sensit,
               project = sites,
-              flux = summ_flux,
+              flux = flux_series_merged_list,
               t0 = t0,
               additionality = summ_additionality,
               credit = summ_credit,
