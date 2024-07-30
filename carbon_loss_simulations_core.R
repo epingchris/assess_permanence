@@ -1,212 +1,3 @@
-# Functions ----
-makeFlux = function(in_df){
-  stock_series = aggregate(class_co2e ~ treatment + year, subset(in_df, class %in% eval_classes), FUN = sum)
-  stock_wide = as.data.frame(pivot_wider(stock_series, id_cols = year, names_from = "treatment", values_from = "class_co2e"))
-  
-  flux_series = data.frame(year = stock_wide$year[-1],
-                           treatment_proj = diff(subset(stock_series, treatment == "treatment")$class_co2e),
-                           control_proj = diff(subset(stock_series, treatment == "control")$class_co2e)) %>%
-    mutate(additionality = treatment_proj - control_proj)
-  return(flux_series)
-}
-
-mergeSeries = function(in_list){
-  lapply(seq_along(in_list), function(i) {
-    in_list[[i]] %>%
-      pivot_longer(2:4, names_to = "var", values_to = "val") %>%
-      mutate(series = paste0("V", i))}) %>%
-    do.call(rbind, .)
-}
-
-#wrapper function to fit using GMM and generate random samples from GMM-fitted distributions
-FitGMM = function(x) {
-  if(length(x) <= 0) {
-    return(NULL)
-  }
-  
-  mclust::Mclust(x, 2, verbose = F)
-}
-
-SampGMM = function(mclust_obj, n) {
-  if(is.null(mclust_obj)) {
-    return(NA)
-  }
-
-  params = mclust_obj$param
-  if(length(params$variance$sigmasq) == 1) params$variance$sigmasq[2] = params$variance$sigmasq[1]
-  samp_vec = NULL
-  while(length(samp_vec) < n) {
-    distr_chosen = ifelse(runif(1) <= params$pro[1], 1, 2)
-    val = rnorm(1, mean = params$mean[distr_chosen], sd = sqrt(params$variance$sigmasq[distr_chosen]))
-    if(val > 0) samp_vec = c(samp_vec, val)
-  }
-  return(samp_vec)
-}
-
-
-# Set input parameters ----
-
-## A. Hypothetical projects ----
-if(type == "hypo") {
-  t0 = 2021
-  
-  year_expost = t0 - 1 #actually no ex post data will be used for hypothetical projects
-  
-  lambdaP = 1
-  lambdaC = 1 / dd_rate
-  
-  expost_p_loss = rexp(1000, lambdaP)
-  expost_c_loss = rexp(1000, lambdaC)
-  
-  #post-project release rate: a ratio of the counterfactual release rate during project (default to double)
-  postproject_release = postproject_ratio / lambdaC
-  
-  samp_additionality = rexp(1000, lambdaC) - rexp(1000, lambdaP)
-  
-  aomega = 1 / lambdaP * log(omega * (lambdaP + lambdaC) / lambdaC) #analytical solution
-
-  #input: t0, year_expost, lambdaP/C, expost_lossP/C, postproject_release, aomega
-  
-## B. Real-life projects ----
-} else if(type == "real") {
-  use_theo = F
-  load(file = paste0(file_path, "project_input_data/", project_site, ".Rdata")) #t0 included
-  
-  flux_series = lapply(agb_series_project_sim, makeFlux)
-  flux_series_merged = mergeSeries(flux_series)
-  year_expost = max(flux_series_merged$year)
-  
-  absloss_p_init = flux_series_merged %>%
-    subset(var == "treatment_proj" & year >= t0 & series != "mean") %>%
-    mutate(val = val * (-1), var = NULL, series = NULL)
-  absloss_c_init = flux_series_merged %>%
-    subset(var == "control_proj" & year >= t0 & series != "mean") %>%
-    mutate(val = val * (-1), var = NULL, series = NULL)
-  
-  expost_p_loss = absloss_p_init %>%
-    group_by(year) %>%
-    summarise(val = mean(val), .groups = "drop") %>%
-    pull(val)
-  expost_c_loss = absloss_c_init %>%
-    group_by(year) %>%
-    summarise(val = mean(val), .groups = "drop") %>%
-    pull(val)
-  
-  #post-project release rate: a ratio of the counterfactual release rate during project (default to double)
-  absloss_p_fit = FitGMM(absloss_p_init$val)
-  absloss_c_fit = FitGMM(absloss_c_init$val)
-  postproject_release = mean(SampGMM(absloss_c_fit, n = 1000)) * postproject_ratio
-  # 
-  # add_samp = SampGMM(absloss_c_fit, n = 1000) - SampGMM(absloss_p_fit, n = 1000)
-  # aomega = quantile(add_samp, omega)
-
-  #input: t0, year_expost, absloss_p/c_init, expost_lossP/C, postproject_release, aomega
-
-## C. Aggregated hypothetical projects ----
-} else if(type == "hypo_aggr") {
-  use_theo = F
-  
-  t0 = 2021
-  
-  year_expost = t0 - 1 #actually no ex post data will be used for hypothetical projects
-  
-  dd_rate_vec = switch(hypo_aggr_type,
-                 "A" = c(1.5, 1.5, 1.5, 10),
-                 "B" = c(1.5, 1.5, 10, 10),
-                 "C" = c(1.5, 10, 10, 10))
-  lambdaP_vec = rep(1, length(dd_rate_vec))
-  lambdaC_vec = 1 / dd_rate_vec
-  
-  absloss_p_samp_list = lapply(lambdaP_vec, function(x) rexp(1000, x))
-  absloss_c_samp_list = lapply(lambdaC_vec, function(x) rexp(1000, x))
-  expost_p_loss = apply(as.data.frame(absloss_p_samp_list), 1, sum)
-  expost_c_loss = apply(as.data.frame(absloss_c_samp_list), 1, sum)
-  
-  #post-project release rate: a ratio of the counterfactual release rate during project (default to double)
-  postproject_release = sum(postproject_ratio / lambdaC_vec)
-  # 
-  # #a-omega: use sampling approach because no analytical a-omega exists yet for portfolio
-  # add_samp = mapply(function(x, y) x - y,
-  #                   x = absloss_c_samp_list, y = absloss_p_samp_list) %>%
-  #   apply(1, sum)
-  # aomega = quantile(add_samp, omega)
-  # 
-  #input: t0, year_expost, lambdaP/C_vec, expost_lossP/C, postproject_release, aomega
-  
-## D. Aggregated real-life projects ----
-} else if(type == "real_aggr") {
-  use_theo = F
-  
-  sites = switch(real_aggr_type,
-                 "five" = c("Gola_country", "WLT_VNCC_KNT", "CIF_Alto_Mayo", "VCS_1396", "VCS_934"),
-                 "four" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396", "VCS_934"),
-                 "three" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396"))
-  
-  flux_series_merged_list = vector("list", length(sites))
-  absloss_p_init_list = vector("list", length(sites))
-  absloss_c_init_list = vector("list", length(sites))
-  t0_vec = rep(NA, length(sites))
-  
-  for(i in seq_along(sites)){
-    load(file = paste0(file_path, "project_input_data/", sites[i], ".Rdata")) #load data
-    t0_vec[i] = t0
-    
-    flux_series = lapply(agb_series_project_sim, makeFlux)
-    flux_series_merged_list[[i]] = mergeSeries(flux_series)
-
-    absloss_p_init_list[[i]] = flux_series_merged_list[[i]] %>%
-      subset(var == "treatment_proj" & year >= t0 & series != "mean") %>%
-      mutate(val = val * (-1), var = NULL, series = NULL)
-    absloss_c_init_list[[i]] = flux_series_merged_list[[i]] %>%
-      subset(var == "control_proj" & year >= t0 & series != "mean") %>%
-      mutate(val = val * (-1), var = NULL, series = NULL)
-  }
-  
-  site = "portfolio"
-  t0 = min(t0_vec)
-  
-  year_expost = 2021
-
-  expost_p_loss = mapply(function(x, y) x = x %>% mutate(site = y),
-                               x = absloss_p_init_list,
-                               y = sites, SIMPLIFY = F) %>%
-    do.call(rbind, .) %>%
-    group_by(year, site) %>%
-    summarise(val = mean(val)) %>%
-    ungroup(site) %>%
-    summarise(val = sum(val), .groups = "drop") %>%
-    pull(val)
-  expost_c_loss = mapply(function(x, y) x = x %>% mutate(site = y),
-                               x = absloss_c_init_list,
-                               y = sites, SIMPLIFY = F) %>%
-    do.call(rbind, .) %>%
-    group_by(year, site) %>%
-    summarise(val = mean(val)) %>%
-    ungroup(site) %>%
-    summarise(val = sum(val), .groups = "drop") %>%
-    pull(val)
-
-  #post-project release rate: a ratio of the counterfactual release rate during project (default to double)
-  absloss_p_fit_list = lapply(absloss_p_init_list, function(x) FitGMM(x$val))
-  absloss_c_fit_list = lapply(absloss_p_init_list, function(x) FitGMM(x$val))
-  postproject_release = absloss_c_fit_list %>%
-    sapply(function(x) SampGMM(x, n = 1000)) %>%
-    apply(1, sum) %>%
-    mean() * postproject_ratio
-  
-  # absloss_p_samp_list = lapply(absloss_p_fit_list, function(x) SampGMM(x, n = 1000))
-  # absloss_c_samp_list = lapply(absloss_c_fit_list, function(x) SampGMM(x, n = 1000))
-  # add_samp = mapply(function(x, y) x - y,
-  #                   x = absloss_c_samp_list,
-  #                   y = absloss_p_samp_list) %>%
-  #   as.data.frame() %>%
-  #   apply(1, function(x) sum(x, na.rm = T))
-  # aomega = quantile(add_samp, omega)
-  
-  #input: t0, year_expost, absloss_p/c_init_list, expost_lossP/C, postproject_release, aomega
-}
-
-
 # 2. Perform simulations ----
 H_max_scc = year_max_scc - t0 + 1
 
@@ -230,7 +21,7 @@ for(j in 1:n_rep){
   #cat("Buffer at start: ", buffer_pool, "\n")
   for(i in 1:H){
     year_i = t0 + i - 1
-    isExPost = year_i <= year_expost
+    isExPost = (year_i <= t_max)
 
     #get carbon loss values
     #sample from fitted distributions for hypothetical projects or in years where ex post values are not available
@@ -275,7 +66,7 @@ for(j in 1:n_rep){
         as.data.frame() %>%
         apply(1, function(x) sum(x, na.rm = T))
     }
-    if(!use_theo) aomega = quantile(samp_additionality, omega)
+    if(is.null(aomega)) aomega = quantile(samp_additionality, omega)
 
     sim_additionality[i, j] = sim_c_loss[i, j] - sim_p_loss[i, j]
     sim_aomega[i, j] = aomega
@@ -387,121 +178,67 @@ summ_risk$risk[1:warmup] = NA
 
 
 #4. Set file prefixes and save results ----
-if(hypo_sensit != "none") {
-  subfolder = paste0("sensitivity_", hypo_sensit, "/")
-} else {
-  subfolder = paste0(type, "/")
-}
+subfolder = paste0(type, "/")
+summ_common = list(t0 = t0,
+                   t_max = t_max,
+                   additionality = summ_additionality,
+                   credit = summ_credit,
+                   release = summ_release,
+                   aomega = summ_aomega,
+                   ep = summ_ep,
+                   risk = summ_risk)
 
 if(type == "hypo") {
   dd_rate_text = gsub("\\.", "_", as.character(dd_rate))
-  if(hypo_sensit == "dd_rate") {
-    file_pref = paste0(hypo_sensit, "_", dd_rate_text)
-    summ = list(type = type,
-                sensitivity = hypo_sensit,
-                dd_rate = dd_rate,
-                additionality = summ_additionality,
-                credit = summ_credit,
-                release = summ_release,
-                aomega = summ_aomega,
-                ep = summ_ep,
-                risk = summ_risk)
-  } else if(hypo_sensit == "warmup") {
-    file_pref = paste0("dd_rate_", dd_rate_text, "_", hypo_sensit, "_", warmup)
-    summ = list(type = type,
-                sensitivity = hypo_sensit,
-                dd_rate = dd_rate,
-                warmup = warmup,
-                additionality = summ_additionality,
-                credit = summ_credit,
-                release = summ_release,
-                aomega = summ_aomega,
-                ep = summ_ep,
-                risk = summ_risk)
-  } else if(hypo_sensit == "ppr") {
-    file_pref = paste0("dd_rate_", dd_rate_text, "_ppr_", gsub("\\.", "_", as.character(postproject_ratio)))
-    summ = list(type = type,
-                sensitivity = hypo_sensit,
-                dd_rate = dd_rate,
-                ppr = postproject_ratio,
-                additionality = summ_additionality,
-                credit = summ_credit,
-                release = summ_release,
-                aomega = summ_aomega,
-                ep = summ_ep,
-                risk = summ_risk)
-  } else if(hypo_sensit == "H") {
-    file_pref = paste0("dd_rate_", dd_rate_text, "_H_", H)
-    summ = list(type = type,
-                sensitivity = hypo_sensit,
-                dd_rate = dd_rate,
-                H = H,
-                additionality = summ_additionality,
-                credit = summ_credit,
-                release = summ_release,
-                aomega = summ_aomega,
-                ep = summ_ep,
-                risk = summ_risk)
+  ppr_text = gsub("\\.", "_", as.character(postproject_ratio))
+  use_theo_text = ifelse(use_theo, "", "_sampled_aomega")
+
+  if(hypo_sensit != "none") {
+    subfolder = paste0("sensitivity_", hypo_sensit, "/")
   } else {
-    subfolder = ifelse(use_theo,
-                       "hypo/",
-                       "hypo_sampled_aomega/")
-    file_pref = paste0("dd_rate_", dd_rate_text, ifelse(use_theo, "", "_sampled_aomega"))
-    summ = list(type = type,
-                sensitivity = hypo_sensit,
-                dd_rate = dd_rate,
-                additionality = summ_additionality,
-                credit = summ_credit,
-                release = summ_release,
-                aomega = summ_aomega,
-                ep = summ_ep,
-                risk = summ_risk)
+    subfolder = paste0("hypo", use_theo_text, "/")
   }
+
+  file_pref = paste0("dd_rate_", dd_rate_text, switch(hypo_sensit,
+                                                      "dd_rate" = "",
+                                                      "warmup" = paste0("_warmup_", warmup),
+                                                      "ppr" = paste0("_ppr_", ppr_text),
+                                                      "H" = paste0("_H_", H),
+                                                      "none" = use_theo_text))
+  
+  summ_hypo = list(type = type,
+                   sensitivity = hypo_sensit,
+                   dd_rate = dd_rate)
+  summ = c(summ_hypo, switch(hypo_sensit,
+                        "dd_rate" = NULL,
+                        "warmup" = list(warmup = warmup),
+                        "ppr" = list(ppr = postproject_ratio),
+                        "H" = list(H = H),
+                        "none" = NULL))
 } else if(type == "real"){
-  file_pref = paste0(switch(project_site,
-                            "Gola_country" = "Gola",
-                            "WLT_VNCC_KNT" = "KNT",
-                            "CIF_Alto_Mayo" = "Alto_Mayo",
-                            "VCS_1396" = "RPA",
-                            "VCS_934" = "Mai_Ndombe"))
+  file_pref = switch(project_site,
+                     "Gola_country" = "Gola", #1201
+                     "WLT_VNCC_KNT" = "KNT",
+                     "CIF_Alto_Mayo" = "Alto_Mayo", #944
+                     "VCS_1396" = "RPA",
+                     "VCS_934" = "Mai_Ndombe")
   
   summ = list(type = type,
               sensitivity = hypo_sensit,
               project = project_site,
-              flux = flux_series_merged,
-              t0 = t0,
-              additionality = summ_additionality,
-              credit = summ_credit,
-              release = summ_release,
-              aomega = summ_aomega,
-              ep = summ_ep,
-              risk = summ_risk)
+              flux = flux_series)
 } else if(type == "hypo_aggr") {
   file_pref = paste0(type, "_", hypo_aggr_type)
   summ = list(type = type,
               sensitivity = hypo_sensit,
-              dd_rate = dd_rate_vec,
-              additionality = summ_additionality,
-              credit = summ_credit,
-              release = summ_release,
-              aomega = summ_aomega,
-              ep = summ_ep,
-              risk = summ_risk)
+              dd_rate = dd_rate_vec)
 } else if(type == "real_aggr") {
   file_pref = paste0(type, "_", real_aggr_type)
   summ = list(type = type,
               sensitivity = hypo_sensit,
               project = sites,
-              flux = flux_series_merged_list,
-              t0 = t0,
-              additionality = summ_additionality,
-              credit = summ_credit,
-              release = summ_release,
-              aomega = summ_aomega,
-              ep = summ_ep,
-              risk = summ_risk)
+              flux = flux_series_list)
 }
-
-file_pref = paste0(file_pref, "_test")
+summ = c(summ, summ_common)
 
 saveRDS(summ, file = paste0(file_path, subfolder, file_pref, "_output.RDS"))

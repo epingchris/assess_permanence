@@ -2,21 +2,24 @@ rm(list = ls())
 library(tidyverse)
 library(magrittr)
 library(mclust)
-file_path = "C:/Users/epr26/OneDrive - University of Cambridge/carbon_release_pattern/"
+file_path = "C:/Users/epr26/OneDrive - University of Cambridge/assess_permanence/"
 
 # Settings ----
 
+#functions
+source("functions.R")
+source("setInput.R")
+
 #simulation type (hypothetical or real-life, single or aggregated)
 type = "real" #hypo, real, hypo_aggr, real_aggr
-dd_rate = 2  #1.1, 2, 5
-hypo_sensit = "none" #none, dd_rate, warmup, ppr, H
-hypo_aggr_type = "C" #A, B, C
+dd_rate = 5  #1.1, 2, 5
+hypo_sensit = "dd_rate" #none, dd_rate, warmup, ppr, H
+hypo_aggr_type = "A" #A, B, C
 real_aggr_type = "three" #five, four, three
 project_site = "Gola_country" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
 use_theo = T #T, F; type != hypo will override this and set use_theo as F
 file_type = "png" #png, pdf
-view_snapshot = F
-print_allrep = F #print real trajectories of all 100 repetitions
+view_snapshot = F #view a snapshot in _core.R
 
 #basic parameters
 omega = 0.05
@@ -31,6 +34,10 @@ scc_extended = read.csv(paste0(file_path, "scc_extended.csv"), row.names = 1)
 year_max_scc = max(scc_extended$year)
 
 # Core code for the simulation ----
+
+inpar = setInput(type) #set input parameters
+
+
 source(paste0(file_path, "carbon_loss_simulations_core.R"))
 
 # Plot results ----
@@ -52,16 +59,38 @@ ggplot(summ_credit, aes(x = year)) +
   geom_line(data = . %>% dplyr::select(year, median), aes(y = median), size = 1, color = "black") +
   geom_hline(yintercept = 0, size = 0.5, color = "black") +
   {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_expost - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
-  scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
-  scale_y_continuous(name = expression("Credits (Mg CO"[2]*")"), limits = range_credit) +
+  scale_x_continuous(name = "", breaks = yr_label, labels = yr_label) +
+  scale_y_continuous(name = "", limits = range_credit) +
+#  scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
+#  scale_y_continuous(name = expression("Credits (Mg CO"[2]*")"), limits = range_credit) +
   theme_bw() +
   theme(axis.line = element_line(linewidth = 0.5),
         panel.grid = element_blank(),
-        axis.title = element_text(size = 24),
         axis.text.x = element_text(size = 18, vjust = 0.5),
-        axis.text.y = element_text(size = 18),
-        plot.margin = margin(0.7, 1, 0.7, 0.7, "cm"))
-ggsave(paste0(file_path, subfolder, file_pref, "_summ_credit.", file_type), width = 15, height = 10, unit = "cm")
+        axis.text.y = element_text(size = 22),
+        plot.margin = margin(0.1, 0.1, 0.1, 0.1, "cm"))
+ggsave(paste0(file_path, subfolder, file_pref, "_summ_credit.", file_type), width = 12, height = 9, unit = "cm")
+
+#2. Anticipated releases
+summ = readRDS(file = "C:/Users/epr26/OneDrive - University of Cambridge/carbon_release_pattern/real/Gola_test_output.RDS")
+ggplot(summ$release, aes(x = year)) +
+  geom_ribbon(data = . %>% dplyr::select(year, p05, p95), aes(ymin = p05, ymax = p95), fill = "lightgray", alpha = 0.5) +
+  geom_ribbon(data = . %>% dplyr::select(year, p25, p75), aes(ymin = p25, ymax = p75), fill = "darkgray", alpha = 0.5) +
+  geom_line(data = . %>% dplyr::select(year, median), aes(y = median), size = 1, color = "black") +
+  geom_hline(yintercept = 0, linewidth = 0.5, color = "black") +
+  {if(type %in% c("hypo", "hypo_aggr") == F) geom_vline(xintercept = year_expost - t0 + 1, linewidth = 0.5, color = "black", lty = "dotted")} +
+  scale_x_continuous(name = "", breaks = yr_label, labels = yr_label) +
+  scale_y_continuous(name = "", limits = range_credit) +
+  #  scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
+  #  scale_y_continuous(name = expression("Credits (Mg CO"[2]*")"), limits = range_credit) +
+  theme_bw() +
+  theme(axis.line = element_line(linewidth = 0.5),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(size = 18, vjust = 0.5),
+        axis.text.y = element_text(size = 22),
+        plot.margin = margin(0.1, 0.1, 0.1, 0.1, "cm"))
+ggsave(paste0(file_path, subfolder, file_pref, "_summ_release.", file_type), width = 12, height = 9, unit = "cm")
+
 
 #2. EP
 ggplot(summ_ep, aes(x = year)) +
@@ -69,32 +98,34 @@ ggplot(summ_ep, aes(x = year)) +
   geom_ribbon(data = . %>% dplyr::select(year, p25, p75), aes(ymin = p25, ymax = p75), fill = "darkgray", alpha = 0.5) +
   geom_line(data = . %>% dplyr::select(year, median), aes(y = median), size = 1, color = "black") +
   {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_expost - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
-  scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
-  scale_y_continuous(name = "EP", limits = c(0, 1)) +
+  scale_x_continuous(name = "", breaks = yr_label, labels = yr_label) +
+  scale_y_continuous(name = "", limits = c(0, 1)) +
+#  scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) +
+#  scale_y_continuous(name = "EP", limits = c(0, 1)) +
   theme_bw() +
   theme(axis.line = element_line(linewidth = 0.5),
         panel.grid = element_blank(),
-        axis.title = element_text(size = 24),
         axis.text.x = element_text(size = 18, vjust = 0.5),
-        axis.text.y = element_text(size = 18),
-        plot.margin = margin(0.7, 1, 0.7, 0.7, "cm"))
-ggsave(paste0(file_path, subfolder, file_pref, "_summ_ep.", file_type), width = 15, height = 10, unit = "cm")
+        axis.text.y = element_text(size = 22),
+        plot.margin = margin(0.1, 0.1, 0.1, 0.1, "cm"))
+ggsave(paste0(file_path, subfolder, file_pref, "_summ_ep.", file_type), width = 12, height = 9, unit = "cm")
 
-# 3. Failure risk
+# 3. Non-delivery risk
 ggplot(summ_risk, aes(x = year)) +
   geom_line(aes(y = risk), size = 1) +
-  scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) + 
-  scale_y_continuous(name = "Failure risk", limits = c(0, 0.5)) + 
   geom_hline(yintercept = 0.05, color = "red", lty = "dashed", size = 0.5) +
   {if(type != "hypo" & type != "hypo_aggr") geom_vline(xintercept = year_expost - t0 + 1, size = 0.5, color = "black", lty = "dotted")} +
+  scale_x_continuous(name = "", breaks = yr_label, labels = yr_label) +
+  scale_y_continuous(name = "", limits = c(0, 0.5)) +
+#  scale_x_continuous(name = "Year", breaks = yr_label, labels = yr_label) + 
+#  scale_y_continuous(name = "Non-delivery risk", limits = c(0, 0.5)) + 
   theme_bw() +
   theme(axis.line = element_line(linewidth = 0.5),
         panel.grid = element_blank(),
-        axis.title = element_text(size = 22),
         axis.text.x = element_text(size = 18, vjust = 0.5),
-        axis.text.y = element_text(size = 18),
-        plot.margin = margin(1.5, 1, 0.7, 0.7, "cm"))
-ggsave(paste0(file_path, subfolder, file_pref, "_summ_risk.", file_type), width = 15, height = 10, unit = "cm")
+        axis.text.y = element_text(size = 22),
+        plot.margin = margin(0.1, 0.1, 0.1, 0.1, "cm"))
+ggsave(paste0(file_path, subfolder, file_pref, "_summ_risk.", file_type), width = 12, height = 9, unit = "cm")
 
 
 ## Time series (all repetitions) ----
@@ -202,9 +233,18 @@ for(dd_i in 1:length(dd_rate_vec)){
   #max EP from all years
   max_EP[, dd_i] = apply(sim_ep, 2, max)
   
-  #per-repetition failure risk (proportion of years without positive credit)
+  #per-repetition non-delivery risk (proportion of years without positive credit)
   risk[, dd_i] = apply(sim_failure, 2, sum) / (H - warmup)
 }
+
+summ_sensit_dd_rate = list(mean_credit = mean_credit,
+                           max_EP = max_EP,
+                           risk = risk)
+saveRDS(summ_sensit_dd_rate, file = paste0(file_path, subfolder, "sensitivity_dd_rate_output.RDS"))
+summ_sensit_dd_rate = readRDS(file = paste0(file_path, subfolder, "sensitivity_dd_rate_output.RDS"))
+mean_credit = summ_sensit_dd_rate$mean_credit
+max_EP = summ_sensit_dd_rate$max_EP
+risk = summ_sensit_dd_rate$risk
 
 ## Figure 2
 drawdown_vec = dd_rate_vec - 1
@@ -244,7 +284,7 @@ ggplot(data = data_risk, aes(x = var)) +
   geom_line(aes(y = mean)) +
   geom_hline(yintercept = 0.05, col = "red", lty = "dashed", size = 0.5) +
   scale_x_continuous(name = "Drawdown", limits = c(0, 5), breaks = seq(0, 5, by = 1)) + 
-  scale_y_continuous(name = "Failure risk", limits = c(0, 0.1)) + 
+  scale_y_continuous(name = "Non-delivery risk", limits = c(0, 0.1)) + 
   theme_bw() +
   theme(axis.line = element_line(linewidth = 0.5),
         panel.grid.minor = element_blank(),
@@ -283,7 +323,7 @@ for(dd_i in 1:length(dd_rate_vec)){
     #max EP from all years
     #max_EP[, w_i] = apply(sim_ep, 2, max)
     
-    #per-repetition failure risk (proportion of years without positive credit)
+    #per-repetition non-delivery risk (proportion of years without positive credit)
     risk[, w_i] = apply(sim_failure, 2, sum) / (H - warmup)
   }
   
@@ -298,16 +338,18 @@ b = Sys.time()
 b - a
 
 summ_risk = do.call(rbind, list_summ_risk) %>%
-  mutate(dd_rate = as.factor(dd_rate))
+  mutate(dd_rate = as.factor(dd_rate - 1))
 
+saveRDS(summ_risk, file = paste0(file_path, subfolder, "sensitivity_warmup_output.RDS"))
+summ_risk = readRDS(file = paste0(file_path, subfolder, "sensitivity_warmup_output.RDS"))
 
-#warm-up period length vs failure risk, each curve corresponds to a drawdown rate
+#warm-up period length vs non-delivery risk, each curve corresponds to a drawdown rate
 ggplot(data = summ_risk, aes(x = var, group = dd_rate)) +
   geom_ribbon(aes(ymin = ci_low, ymax = ci_high, fill = dd_rate), alpha = 0.3) +
   geom_line(aes(y = mean, color = dd_rate), size = 0.5) +
   geom_hline(yintercept = 0.05, color = "red", lty = "dashed", size = 1) +
   scale_x_continuous(name = "Warm-up period (years)") + 
-  scale_y_continuous(name = "Failure risk", limits = c(0, 0.2)) + 
+  scale_y_continuous(name = "Non-delivery risk", limits = c(0, 0.2)) + 
   scale_color_manual(values = c("red", "pink", "lightblue", "blue")) +
   scale_fill_manual(values = c("red", "pink",  "lightblue", "blue"), guide = NULL) + 
   guides(color = guide_legend(title = "Drawdown rate", title.theme = element_text(size = 18),
@@ -346,17 +388,18 @@ for(ppr_i in 1:length(ppr_vec)){
   #max EP from all years
   max_EP[, ppr_i] = apply(sim_ep, 2, max)
   
-  #per-repetition failure risk (proportion of years without positive credit)
+  #per-repetition non-delivery risk (proportion of years without positive credit)
   #risk[, ppr_i] = apply(sim_failure, 2, sum) / (H - warmup)
 }
 
-## Figures
 data_max_EP = SummariseAcrossTests(max_EP, ppr_vec * dd_rate)
+saveRDS(data_max_EP, file = paste0(file_path, subfolder, "sensitivity_ppr_output.RDS"))
+data_max_EP = readRDS(file = "C:/Users/epr26/OneDrive - University of Cambridge/carbon_release_pattern/sensit_ppr/sensitivity_ppr_output.RDS")
 
 ggplot(data = data_max_EP, aes(x = var)) +
   #    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
   geom_line(aes(y = mean), size = 1) +
-  scale_y_continuous(limits = c(0, 0.75)) + 
+  scale_y_continuous(limits = c(0, 0.5)) + 
   xlab(label = "Post-project release rate") + 
   ylab(label = "EP") + 
   theme_bw() +
@@ -395,18 +438,19 @@ for(H_i in 1:length(H_vec)){
   #max EP from all years
   max_EP[, H_i] = apply(sim_ep, 2, max)
   
-  #per-repetition failure risk (proportion of years without positive credit)
+  #per-repetition non-delivery risk (proportion of years without positive credit)
   #risk[, ppr_i] = apply(sim_failure, 2, sum) / (H - warmup)
 }
 
-## Figures
 data_max_EP = SummariseAcrossTests(max_EP, H_vec)
+saveRDS(data_max_EP, file = paste0(file_path, subfolder, "sensitivity_H_output.RDS"))
+data_max_EP = readRDS(file = "C:/Users/epr26/OneDrive - University of Cambridge/carbon_release_pattern/sensit_H/sensitivity_H_output.RDS")
 
 ggplot(data = data_max_EP, aes(x = var)) +
-  geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
+#  geom_ribbon(aes(ymin = ci_low, ymax = ci_high), fill = "lightgray") +
   geom_line(aes(y = mean), size = 1) +
-  scale_y_continuous(limits = c(0, 0.75)) + 
-  xlab(label = "Project duration") + 
+  scale_y_continuous(limits = c(0, 0.5)) + 
+  xlab(label = "Duration (year)") + 
   ylab(label = "EP") + 
   theme_bw() +
   theme(axis.line = element_line(linewidth = 0.5),
