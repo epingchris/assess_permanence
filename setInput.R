@@ -1,11 +1,12 @@
 setInput = function(type, mean_drawdown = NULL, sites = NULL, aggregate_type = NULL) {
-  ## A. Theoretical projects (single or aggregated) ----
+  # Theoretical projects (single or aggregated) ----
   if(type == "theo") {
     if(is.null(aggregate_type)) {
       if(is.null(mean_drawdown)) {
         stop("An aggregated project type or a mean drawdown value(s) is needed.")
       } else {
         cat("Drawdown value(s) used:", mean_drawdown)
+        type_label = paste0(type, "_", paste(gsub("\\.", "_", mean_drawdown), collapse = "_"))
       }
     } else {
       if(aggregate_type %in% c("A", "B", "C") == F) {
@@ -16,6 +17,7 @@ setInput = function(type, mean_drawdown = NULL, sites = NULL, aggregate_type = N
                                "B" = c(1.1, 1.1, 5, 5),
                                "C" = c(1.1, 5, 5, 5))
         cat("Aggregate project type", aggregate_type, "is used:", mean_drawdown)
+        type_label = paste0(type, "_aggr_", aggregate_type)
       }
     }
 
@@ -39,56 +41,27 @@ setInput = function(type, mean_drawdown = NULL, sites = NULL, aggregate_type = N
       aomega = NULL
     }
 
-    output_list = list(t0 = t0, t_max = t_max, lambdaP = lambdaP, lambdaC = lambdaC,
+    output_list = list(type = type, mean_drawdown = mean_drawdown, type_label = type_label,
+                       t0 = t0, t_max = t_max, lambdaP = lambdaP, lambdaC = lambdaC,
                        obs_p_loss = obs_p_loss, obs_c_loss = obs_c_loss,
                        postproject_release = postproject_release, aomega = aomega)
     
-    ## B. Real-life projects ----
+  # Real-life projects (single or aggregated) ----
   } else if(type == "real") {
-    if(is.null(sites)) {
-      stop("Real projects need a site name value.")
-    }
-    if(length(sites) > 1) {
-      stop("Type \"real_aggr\" needs to be used for aggregated projects.")
-    }
-
-    agb_series_df = read.csv(paste0(file_path, "project_input_data/", sites, ".csv"), header = T)
-    t0 = subset(agb_series_df, started)$year[1]
-    t_max = max(agb_series_df$year)
-    flux_series = makeFlux(agb_series_df)
-    
-    c_loss_p = flux_series %>%
-      subset(var == "treatment_proj" & year >= t0) %>%
-      mutate(val = val * (-1), var = NULL, series = NULL)
-    c_loss_c = flux_series %>%
-      subset(var == "control_proj" & year >= t0) %>%
-      mutate(val = val * (-1), var = NULL, series = NULL)
-    
-    obs_p_loss = c_loss_p %>%
-      group_by(year) %>%
-      summarise(val = mean(val), .groups = "drop") %>%
-      pull(val)
-    obs_c_loss = c_loss_c %>%
-      group_by(year) %>%
-      summarise(val = mean(val), .groups = "drop") %>%
-      pull(val)
-    
-    #post-project release rate: a ratio of the counterfactual release rate during project (default to double)
-    c_loss_p_fit = FitGMM(c_loss_p$val)
-    c_loss_c_fit = FitGMM(c_loss_c$val)
-    postproject_release = mean(SampGMM(c_loss_c_fit, n = 1000)) * postproject_ratio
-    
-    output_list = list(t0 = t0, t_max = t_max, c_loss_p = c_loss_p, c_loss_c = c_loss_c,
-                       obs_p_loss = obs_p_loss, obs_c_loss = obs_c_loss,
-                       postproject_release = postproject_release, aomega = NULL)
-    
-    ## D. Aggregated real-life projects ----
-  } else if(type == "real_aggr") {
     if(is.null(aggregate_type)) {
       if(is.null(sites)) {
         stop("An aggregated project type or a site name(s) is needed.")
       } else {
         cat("Site(s) used:", sites)
+        sites_simplified = sapply(sites, function(x) {
+          switch(x,
+                 "Gola_country" = "Gola", #1201
+                 "WLT_VNCC_KNT" = "KNT",
+                 "CIF_Alto_Mayo" = "Alto_Mayo", #944
+                 "VCS_1396" = "RPA",
+                 "VCS_934" = "Mai_Ndombe")
+        }) %>% as.vector()
+        type_label = paste0(type, "_", paste(sites_simplified, collapse = "_"))
       }
     } else if(aggregate_type %in% c("four", "three") == F) {
       stop("Aggregated project type is not defined.")
@@ -97,6 +70,7 @@ setInput = function(type, mean_drawdown = NULL, sites = NULL, aggregate_type = N
                      "four" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396", "VCS_934"),
                      "three" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396"))
       cat("Aggregated project type", aggregate_type, "is used:", sites)
+      type_label = paste0(type, "_aggr_", aggregate_type)
     }
     
     t0_vec = rep(NA, length(sites))
@@ -120,7 +94,6 @@ setInput = function(type, mean_drawdown = NULL, sites = NULL, aggregate_type = N
         mutate(val = val * (-1), var = NULL, series = NULL, site = site_i)
     }
     
-    site = "portfolio"
     t0 = min(t0_vec)
     t_max = 2021
     
@@ -149,7 +122,8 @@ setInput = function(type, mean_drawdown = NULL, sites = NULL, aggregate_type = N
     
     #input for simulation: t0, t_max, c_loss_p/c_init_list, obs_lossP/C, postproject_release
     
-    output_list = list(t0 = t0, t_max = t_max, c_loss_p_list = c_loss_p_list, c_loss_c_list = c_loss_c_list,
+    output_list = list(type = type, sites = sites, type_label = type_label,
+                       t0 = t0, t_max = t_max, c_loss_p_list = c_loss_p_list, c_loss_c_list = c_loss_c_list,
                        obs_p_loss = obs_p_loss, obs_c_loss = obs_c_loss,
                        postproject_release = postproject_release, aomega = NULL)
   }

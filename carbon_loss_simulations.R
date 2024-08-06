@@ -2,7 +2,6 @@ rm(list = ls())
 library(tidyverse)
 library(magrittr)
 library(mclust)
-file_path = "C:/Users/epr26/OneDrive - University of Cambridge/assess_permanence/"
 
 # Settings ----
 
@@ -17,37 +16,30 @@ H = 50 #project duration
 D = 0.03 #discount rate
 warmup = 5 #warm-up period
 postproject_ratio = 2 #ratio of post-project release compared to during-project additionality accumulation rate
-scc_extended = read.csv(paste0(file_path, "scc_extended.csv"), row.names = 1) #social cost of carbon
+scc_extended = read.csv("scc_extended.csv", row.names = 1) #social cost of carbon
 year_max_scc = max(scc_extended$year) #release horizon
 
 
 # Core code for the simulation ----
 
-#set input parameters5  
+#set input parameters
+type = "theo" #theo, real
+hypo_sensit = "none" #none, dd_rate, warmup, ppr, H
+out_path = "C:/Users/epr26/OneDrive - University of Cambridge/assess_permanence_out/"
+file_type = "png" #png, pdf
+view_snapshot = F #view a snapshot in carbon_loss_simulations_core.R
+
 
 inpar = setInput(type = "theo", mean_drawdown = 1.1) #1.1, 2, 5
 
 inpar = setInput(type = "real", sites = "Gola_country") #Gola_country, CIF_Alto_Mayo, VCS_1396, VCS_934
 
-inpar = setInput(type = "theo", drawdown_type = "A") #A, B, C
+inpar = setInput(type = "theo", aggregate_type = "A") #A, B, C
 
-inpar = setInput(type = "real", sites = "Gola_country") #five, four, three
-inpar = setInput(type = "real_aggr", sites = "Gola_country") #five, four, three
-
-#simulation type (hypothetical or real-life, single or aggregated)
-dd_rate = 5  #1.1, 2, 5
-hypo_sensit = "dd_rate" #none, dd_rate, warmup, ppr, H
-file_type = "png" #png, pdf
-view_snapshot = F #view a snapshot in _core.R
+inpar = setInput(type = "real", aggregate_type = "three") #three, four
 
 
-
-    output_list = list(t0 = t0, t_max = t_max, absloss_p_init_list = absloss_p_init_list, absloss_c_init_list = absloss_c_init_list,
-                       expost_p_loss = expost_p_loss, expost_c_loss = expost_c_loss,
-                       postproject_release = postproject_release, aomega = NULL)
-
-
-source(paste0(file_path, "carbon_loss_simulations_core.R"))
+source("carbon_loss_simulations_core.R")
 
 # Plot results ----
 yr_label = c(1, seq(H / 10, H, by = H / 10))
@@ -234,7 +226,7 @@ risk = matrix(NA, n_rep, length(dd_rate_vec))
 
 for(dd_i in 1:length(dd_rate_vec)){
   dd_rate = dd_rate_vec[dd_i]
-  source(paste0(file_path, "carbon_loss_simulations_core.R"))
+  source("carbon_loss_simulations_core.R")
   
   #mean of credits from all years (except warm-up period)
   mean_credit[, dd_i] = apply(sim_credit, 2, sum) / (H - warmup)
@@ -324,7 +316,7 @@ for(dd_i in 1:length(dd_rate_vec)){
   
   for(w_i in 1:length(warmup_vec)){
     warmup = warmup_vec[w_i]
-    source(paste0(file_path, "carbon_loss_simulations_core.R"))
+    source("carbon_loss_simulations_core.R")
     
     #mean of credits from all years (except warm-up period)
     #mean_credit[, w_i] = apply(sim_credit, 2, sum) / (H - warmup)
@@ -389,7 +381,7 @@ mean_cred = matrix(NA, n_rep, length(ppr_vec))
 for(ppr_i in 1:length(ppr_vec)){
   postproject_ratio = ppr_vec[ppr_i]
   
-  source(paste0(file_path, "carbon_loss_simulations_core.R"))
+  source("carbon_loss_simulations_core.R")
   
   #mean of credits from all years (except the warm-up period)
   #mean_credit[, ppr_i] = apply(sim_credit, 2, sum) / (H - warmup)
@@ -439,7 +431,7 @@ mean_cred = matrix(NA, n_rep, length(H_vec))
 for(H_i in 1:length(H_vec)){
   H = H_vec[H_i]
   
-  source(paste0(file_path, "carbon_loss_simulations_core.R"))
+  source("carbon_loss_simulations_core.R")
   
   #mean of credits from all years (except the warm-up period)
   #mean_credit[, ppr_i] = apply(sim_credit, 2, sum) / (H - warmup)

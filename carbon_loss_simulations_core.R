@@ -1,3 +1,24 @@
+# 1. Unpactk input variables ----
+type = inpar$type
+type_label = inpar$type_label
+t0 = inpar$t0
+t_max = inpar$t_max
+obs_p_loss = inpar$obs_p_loss
+obs_c_loss = inpar$obs_c_loss
+postproject_release = inpar$postproject_release
+aomega = inpar$aomega
+
+if(type == "theo") {
+  mean_drawdown = inpar$mean_drawdown
+  lambdaP = inpar$lambdaP
+  lambdaC = inpar$lambdaC
+} else {
+  sites = inpar$sites
+  c_loss_p_list = inpar$c_loss_p_list
+  c_loss_c_list = inpar$c_loss_c_list
+}
+
+
 # 2. Perform simulations ----
 H_max_scc = year_max_scc - t0 + 1
 
@@ -134,26 +155,7 @@ if(view_snapshot) {
   View(snapshot)
 }
 
-# 3. Summarise results ----
-SummariseSim = function(mat){
-  df = mat %>%
-    as.data.frame() %>%
-    reframe(
-      year = row_number(),
-      p05 = apply(., 1, function(x) quantile(x, 0.05, na.rm = T)),
-      p25 = apply(., 1, function(x) quantile(x, 0.25, na.rm = T)),
-      median = apply(., 1, median, na.rm = T),
-      p75 = apply(., 1, function(x) quantile(x, 0.75, na.rm = T)),
-      p95 = apply(., 1, function(x) quantile(x, 0.95, na.rm = T)),
-      mean = apply(., 1, mean, na.rm = T),
-      sd = apply(., 1, function(x) sd(x, na.rm = T)),
-      ci_margin = qt(0.975, df = n_rep - 1) * sd / sqrt(n_rep),
-      ci_low = mean - ci_margin,
-      ci_high = mean + ci_margin
-    )
-  return(df)
-}
-
+# 3. Summarise results (time series) ----
 summ_additionality = SummariseSim(sim_additionality)
 summ_credit = SummariseSim(sim_credit)
 #summ_pact = SummariseSim(sim_pact)
@@ -173,7 +175,7 @@ summ_risk$risk[1:warmup] = NA
 
 
 #4. Set file prefixes and save results ----
-subfolder = paste0(type, "/")
+subfolder = paste0(type_label, "/")
 summ_common = list(t0 = t0,
                    t_max = t_max,
                    additionality = summ_additionality,
@@ -183,57 +185,34 @@ summ_common = list(t0 = t0,
                    ep = summ_ep,
                    risk = summ_risk)
 
-if(type == "hypo") {
-  dd_rate_text = gsub("\\.", "_", as.character(dd_rate))
-  ppr_text = gsub("\\.", "_", as.character(postproject_ratio))
-  use_theo_text = ifelse(use_theo, "", "_sampled_aomega")
-
-  if(hypo_sensit != "none") {
+if(type == "theo" & hypo_sensit == "none") {
+  summ = list(mean_drawdown = mean_drawdown)
+} else if(type == "real"){
+  summ = list(sites = sites,
+              c_loss_p_list = c_loss_p_list,
+              c_loss_c_list = c_loss_c_list)
+} else if(hypo_sensit != "none") {
+    ppr_text = gsub("\\.", "_", as.character(postproject_ratio))
+    drawdown_text = gsub("\\.", "_", as.character(mean_drawdown))
     subfolder = paste0("sensitivity_", hypo_sensit, "/")
-  } else {
-    subfolder = paste0("hypo", use_theo_text, "/")
+    file_pref = paste0("drawdown_", drawdown_text, switch(hypo_sensit,
+                                                          "dd_rate" = "",
+                                                          "warmup" = paste0("_warmup_", warmup),
+                                                          "ppr" = paste0("_ppr_", ppr_text),
+                                                          "H" = paste0("_H_", H),
+                                                          "none" = ""))
+    summ_hypo = list(type = type,
+                     sensitivity = hypo_sensit,
+                     mean_drawdown = mean_drawdown,
+                     switch(hypo_sensit,
+                            "dd_rate" = NULL,
+                            "warmup" = list(warmup = warmup),
+                            "ppr" = list(ppr = postproject_ratio),
+                            "H" = list(H = H),
+                            "none" = NULL))
   }
 
-  file_pref = paste0("dd_rate_", dd_rate_text, switch(hypo_sensit,
-                                                      "dd_rate" = "",
-                                                      "warmup" = paste0("_warmup_", warmup),
-                                                      "ppr" = paste0("_ppr_", ppr_text),
-                                                      "H" = paste0("_H_", H),
-                                                      "none" = use_theo_text))
-  
-  summ_hypo = list(type = type,
-                   sensitivity = hypo_sensit,
-                   dd_rate = dd_rate)
-  summ = c(summ_hypo, switch(hypo_sensit,
-                        "dd_rate" = NULL,
-                        "warmup" = list(warmup = warmup),
-                        "ppr" = list(ppr = postproject_ratio),
-                        "H" = list(H = H),
-                        "none" = NULL))
-} else if(type == "real"){
-  file_pref = switch(project_site,
-                     "Gola_country" = "Gola", #1201
-                     "WLT_VNCC_KNT" = "KNT",
-                     "CIF_Alto_Mayo" = "Alto_Mayo", #944
-                     "VCS_1396" = "RPA",
-                     "VCS_934" = "Mai_Ndombe")
-  
-  summ = list(type = type,
-              sensitivity = hypo_sensit,
-              project = project_site,
-              flux = flux_series)
-} else if(type == "hypo_aggr") {
-  file_pref = paste0(type, "_", hypo_aggr_type)
-  summ = list(type = type,
-              sensitivity = hypo_sensit,
-              dd_rate = dd_rate_vec)
-} else if(type == "real_aggr") {
-  file_pref = paste0(type, "_", real_aggr_type)
-  summ = list(type = type,
-              sensitivity = hypo_sensit,
-              project = sites,
-              flux = flux_series_list)
-}
-summ = c(summ, summ_common)
+summ_complete = c(summ, summ_common)
 
-saveRDS(summ, file = paste0(file_path, subfolder, file_pref, "_output.RDS"))
+dir.create(paste0(out_path, subfolder))
+saveRDS(summ_complete, file = paste0(out_path, subfolder, type_label, "_output.rds"))

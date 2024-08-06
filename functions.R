@@ -39,3 +39,24 @@ SampGMM = function(mclust_obj, n) {
   }
   return(samp_vec)
 }
+
+#create summary of time series where number of row is H
+SummariseSim = function(mat){
+  df = mat %>%
+    as.data.frame() %>%
+    reframe(
+      year = row_number(),
+      p05 = apply(., 1, function(x) quantile(x, 0.05, na.rm = T)),
+      p25 = apply(., 1, function(x) quantile(x, 0.25, na.rm = T)),
+      median = apply(., 1, median, na.rm = T),
+      p75 = apply(., 1, function(x) quantile(x, 0.75, na.rm = T)),
+      p95 = apply(., 1, function(x) quantile(x, 0.95, na.rm = T)),
+      mean = apply(., 1, mean, na.rm = T),
+      sd = apply(., 1, function(x) sd(x, na.rm = T)),
+      ci_margin = qt(0.975, df = n_rep - 1) * sd / sqrt(n_rep),
+      ci_low = mean - ci_margin,
+      ci_high = mean + ci_margin
+    )
+  return(df)
+}
+
