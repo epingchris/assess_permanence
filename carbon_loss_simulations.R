@@ -27,11 +27,12 @@ year_max_scc = max(scc_extended$year) #release horizon
 
 inpar = setInput(type = "theo", mean_drawdown = 1.1) #1.1, 2, 5
 
-inpar = setInput(type = "real", sites = "Gola_country") #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
+inpar = setInput(type = "real", sites = "Gola_country") #Gola_country, CIF_Alto_Mayo, VCS_1396, VCS_934
 
 inpar = setInput(type = "theo", drawdown_type = "A") #A, B, C
 
-inpar = setInput(type = "real_aggr", sites = "three") #five, four, three
+inpar = setInput(type = "real", sites = "Gola_country") #five, four, three
+inpar = setInput(type = "real_aggr", sites = "Gola_country") #five, four, three
 
 #simulation type (hypothetical or real-life, single or aggregated)
 dd_rate = 5  #1.1, 2, 5

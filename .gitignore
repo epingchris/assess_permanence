@@ -1,7 +1,10 @@
 */*
 .Rproj.user
 .Rhistory
-.RData
+*.RData
+*.Rdata
+*.RDS
+*.rds
 .Ruserdata
 *.pdf
 *.png

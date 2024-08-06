@@ -26,43 +26,38 @@ for(j in 1:n_rep){
     #get carbon loss values
     #sample from fitted distributions for hypothetical projects or in years where ex post values are not available
     #use ex post values for real-life projects in years where they are available
-    if(type == "hypo") {
-      sim_p_loss[i, j] = rexp(1, lambdaP)
-      sim_c_loss[i, j] = rexp(1, lambdaC)
-    } else if(type == "hypo_aggr") {
-      sim_p_loss[i, j] = sum(sapply(lambdaP_vec, function(x) rexp(1, x)))
-      sim_c_loss[i, j] = sum(sapply(lambdaC_vec, function(x) rexp(1, x)))
+    if(type == "theo") {
+      sim_p_loss[i, j] = sum(sapply(lambdaP, function(x) rexp(1, x)))
+      sim_c_loss[i, j] = sum(sapply(lambdaC, function(x) rexp(1, x)))
     } else if(type == "real") {
-      sim_p_loss[i, j] = ifelse(isExPost, obs_p_loss[i], SampGMM(absloss_p_fit, n = 1))
-      sim_c_loss[i, j] = ifelse(isExPost, obs_c_loss[i], SampGMM(absloss_c_fit, n = 1))
+      sim_p_loss[i, j] = ifelse(isExPost, obs_p_loss[i], SampGMM(c_loss_p_fit, n = 1))
+      sim_c_loss[i, j] = ifelse(isExPost, obs_c_loss[i], SampGMM(c_loss_c_fit, n = 1))
     } else if(type == "real_aggr") {
-      sim_p_loss[i, j] = ifelse(isExPost, obs_p_loss[i], sum(sapply(absloss_p_fit_list, function(x) SampGMM(x, n = 1))))
-      sim_c_loss[i, j] = ifelse(isExPost, obs_c_loss[i], sum(sapply(absloss_c_fit_list, function(x) SampGMM(x, n = 1))))
+      sim_p_loss[i, j] = ifelse(isExPost, obs_p_loss[i], sum(sapply(c_loss_p_fit_list, function(x) SampGMM(x, n = 1))))
+      sim_c_loss[i, j] = ifelse(isExPost, obs_c_loss[i], sum(sapply(c_loss_c_fit_list, function(x) SampGMM(x, n = 1))))
     }
 
     #calculate a-omega: sample-based unless in single hypothetical project
-    if(type == "hypo") {
-      samp_additionality = rexp(1000, lambdaC) - rexp(1000, lambdaP)
-    } else if(type == "real") {
-      absloss_p_fit = FitGMM(subset(absloss_p_init, year <= year_i)$val)
-      absloss_c_fit = FitGMM(subset(absloss_c_init, year <= year_i)$val)
-      samp_additionality = SampGMM(absloss_c_fit, n = 1000) - SampGMM(absloss_p_fit, n = 1000)
-    } else if(type == "hypo_aggr") {
+    if(type == "theo") {
       samp_additionality = mapply(function(x, y) rexp(1000, x) - rexp(1000, y),
-                                  x = lambdaC_vec, y = lambdaP_vec) %>%
+                                  x = lambdaC, y = lambdaP) %>%
         apply(1, sum)
+    } else if(type == "real") {
+      c_loss_p_fit = FitGMM(subset(c_loss_p, year <= year_i)$val)
+      c_loss_c_fit = FitGMM(subset(c_loss_c, year <= year_i)$val)
+      samp_additionality = SampGMM(c_loss_c_fit, n = 1000) - SampGMM(c_loss_p_fit, n = 1000)
     } else if(type == "real_aggr") {
-      absloss_p_fit_list = lapply(absloss_p_init_list, function(x) {
+      c_loss_p_fit_list = lapply(c_loss_p_list, function(x) {
         FitGMM(subset(x, year <= year_i & year >= t0)$val)})
-      absloss_p_samp_list = lapply(absloss_p_fit_list, function(x) SampGMM(x, n = 1000))
+      c_loss_p_samp_list = lapply(c_loss_p_fit_list, function(x) SampGMM(x, n = 1000))
       
-      absloss_c_fit_list = lapply(absloss_c_init_list, function(x) {
+      c_loss_c_fit_list = lapply(c_loss_c_list, function(x) {
         FitGMM(subset(x, year <= year_i & year >= t0)$val)})
-      absloss_c_samp_list = lapply(absloss_c_fit_list, function(x) SampGMM(x, n = 1000))
+      c_loss_c_samp_list = lapply(c_loss_c_fit_list, function(x) SampGMM(x, n = 1000))
       
       samp_additionality = mapply(function(x, y) x - y,
-                                  x = absloss_c_samp_list,
-                                  y = absloss_p_samp_list) %>%
+                                  x = c_loss_c_samp_list,
+                                  y = c_loss_p_samp_list) %>%
         as.data.frame() %>%
         apply(1, function(x) sum(x, na.rm = T))
     }
