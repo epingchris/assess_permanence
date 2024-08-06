@@ -8,34 +8,42 @@ file_path = "C:/Users/epr26/OneDrive - University of Cambridge/assess_permanence
 
 #functions
 source("functions.R")
-source("setInput.R")
-
-#simulation type (hypothetical or real-life, single or aggregated)
-type = "real" #hypo, real, hypo_aggr, real_aggr
-dd_rate = 5  #1.1, 2, 5
-hypo_sensit = "dd_rate" #none, dd_rate, warmup, ppr, H
-hypo_aggr_type = "A" #A, B, C
-real_aggr_type = "three" #five, four, three
-project_site = "Gola_country" #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
-use_theo = T #T, F; type != hypo will override this and set use_theo as F
-file_type = "png" #png, pdf
-view_snapshot = F #view a snapshot in _core.R
+source("setInput.R") #
 
 #basic parameters
-omega = 0.05
+omega = 0.05 #threshold of acceptable reversal risk
 n_rep = 100 #number of repetitions
-H = 50 #evaluation horizon; project duration
+H = 50 #project duration
 D = 0.03 #discount rate
 warmup = 5 #warm-up period
-postproject_ratio = 2 #ratio of post-project release compare to during project
+postproject_ratio = 2 #ratio of post-project release compared to during-project additionality accumulation rate
+scc_extended = read.csv(paste0(file_path, "scc_extended.csv"), row.names = 1) #social cost of carbon
+year_max_scc = max(scc_extended$year) #release horizon
 
-#SCC
-scc_extended = read.csv(paste0(file_path, "scc_extended.csv"), row.names = 1)
-year_max_scc = max(scc_extended$year)
 
 # Core code for the simulation ----
 
-inpar = setInput(type) #set input parameters
+#set input parameters5  
+
+inpar = setInput(type = "theo", mean_drawdown = 1.1) #1.1, 2, 5
+
+inpar = setInput(type = "real", sites = "Gola_country") #Gola_country, WLT_VNCC_KNT, CIF_Alto_Mayo, VCS_1396, VCS_934
+
+inpar = setInput(type = "theo", drawdown_type = "A") #A, B, C
+
+inpar = setInput(type = "real_aggr", sites = "three") #five, four, three
+
+#simulation type (hypothetical or real-life, single or aggregated)
+dd_rate = 5  #1.1, 2, 5
+hypo_sensit = "dd_rate" #none, dd_rate, warmup, ppr, H
+file_type = "png" #png, pdf
+view_snapshot = F #view a snapshot in _core.R
+
+
+
+    output_list = list(t0 = t0, t_max = t_max, absloss_p_init_list = absloss_p_init_list, absloss_c_init_list = absloss_c_init_list,
+                       expost_p_loss = expost_p_loss, expost_c_loss = expost_c_loss,
+                       postproject_release = postproject_release, aomega = NULL)
 
 
 source(paste0(file_path, "carbon_loss_simulations_core.R"))

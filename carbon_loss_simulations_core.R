@@ -33,11 +33,11 @@ for(j in 1:n_rep){
       sim_p_loss[i, j] = sum(sapply(lambdaP_vec, function(x) rexp(1, x)))
       sim_c_loss[i, j] = sum(sapply(lambdaC_vec, function(x) rexp(1, x)))
     } else if(type == "real") {
-      sim_p_loss[i, j] = ifelse(isExPost, expost_p_loss[i], SampGMM(absloss_p_fit, n = 1))
-      sim_c_loss[i, j] = ifelse(isExPost, expost_c_loss[i], SampGMM(absloss_c_fit, n = 1))
+      sim_p_loss[i, j] = ifelse(isExPost, obs_p_loss[i], SampGMM(absloss_p_fit, n = 1))
+      sim_c_loss[i, j] = ifelse(isExPost, obs_c_loss[i], SampGMM(absloss_c_fit, n = 1))
     } else if(type == "real_aggr") {
-      sim_p_loss[i, j] = ifelse(isExPost, expost_p_loss[i], sum(sapply(absloss_p_fit_list, function(x) SampGMM(x, n = 1))))
-      sim_c_loss[i, j] = ifelse(isExPost, expost_c_loss[i], sum(sapply(absloss_c_fit_list, function(x) SampGMM(x, n = 1))))
+      sim_p_loss[i, j] = ifelse(isExPost, obs_p_loss[i], sum(sapply(absloss_p_fit_list, function(x) SampGMM(x, n = 1))))
+      sim_c_loss[i, j] = ifelse(isExPost, obs_c_loss[i], sum(sapply(absloss_c_fit_list, function(x) SampGMM(x, n = 1))))
     }
 
     #calculate a-omega: sample-based unless in single hypothetical project

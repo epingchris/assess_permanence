@@ -1,0 +1,9 @@
+*/*
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.pdf
+*.png
+*.Rproj
+*.ipynb
