@@ -41,7 +41,7 @@ SampGMM = function(mclust_obj, n) {
 }
 
 #create summary of time series where number of row is H
-SummariseSim = function(mat){
+SummariseSim = function(mat, n_rep = 100){
   df = mat %>%
     as.data.frame() %>%
     reframe(

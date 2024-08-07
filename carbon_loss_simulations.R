@@ -5,39 +5,116 @@ library(mclust)
 
 # Settings ----
 
-#functions
+#read data and functions
 source("functions.R")
-source("setInput.R") #
+source("setInput.R") #to be replaced by SimulatePermanence
+source("SimulatePermanence.r") #core simulation function
+scc = read.csv("scc_extended.csv", row.names = 1) #social cost of carbon
+scc = scc %>%
+  mutate(value = central) %>%
+  dplyr::select(year, value)
 
-#basic parameters
-omega = 0.05 #threshold of acceptable reversal risk
-n_rep = 100 #number of repetitions
-H = 50 #project duration
-D = 0.03 #discount rate
-warmup = 5 #warm-up period
-postproject_ratio = 2 #ratio of post-project release compared to during-project additionality accumulation rate
-scc_extended = read.csv("scc_extended.csv", row.names = 1) #social cost of carbon
-year_max_scc = max(scc_extended$year) #release horizon
+#The function SimulatePermanence() takes the following arguments:
+# type: character, "theo" for theoretical projects, "real" for real-life projects
+#
+# mean_drawdown: numerical vector, mean drawdown rate(s) for theoretical project(s)
+## its inverse will be used as the lambda parameter of an exponential distribution)
+## when aggregate_type is NULL and the length of this argument > 1, it initialises a custom theoretical aggregated project
+#
+# sites: character vector, name(s) for the real-life project(s)
+## the function will look for AGB time series data in "/project_input_data/sites.csv"
+## when aggregate_type is NULL and the length of this argument > 1, it initialises a custom real-life aggregated project
+#
+# aggregate_type: character, specifying default settings for theoretical/real-life aggregated projects
+## this argument overrides both mean_drawdown and sites when not NULL:
+## "A": theoretical, mean_drawdown = c(1.1, 1.1, 1.1, 5)
+## "B": theoretical, mean_drawdown = c(1.1, 1.1, 5, 5)
+## "C": theoretical, mean_drawdown = c(1.1, 5, 5, 5)
+## "three": real-life, sites = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396")
+## "four": real-life, sites = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396", "VCS_934")
+#
+# verbose: boolean, whether to print basic output at each timestep (default: FALSE)
+# runtime: boolean, whether to print (default: TRUE)
+# omega: numeric, threshold of acceptable reversal risk (default: 0.05)
+# n_rep: numeric, number of repetitions (default: 100)
+# H: numeric, project duration (years) (default: 50)
+# D: numeric, discount rate (default: 0.03)
+# warmup: numeric, warm-up period (years) (default: 5)
+# postproject_ratio: numeric, ratio of post-project release compared to during-project additionality accumulation rate (default: 2)
+# scc: numeric data frame, containing two columns, year and value (default: scc, a data frame which should be loaded and prepared)
 
-
-# Core code for the simulation ----
-
-#set input parameters
-#type = "theo" #theo, real
-hypo_sensit = "none" #none, dd_rate, warmup, ppr, H
 out_path = "C:/Users/epr26/OneDrive - University of Cambridge/assess_permanence_out/"
 file_type = "png" #png, pdf
+hypo_sensit = "none" #none, dd_rate, warmup, ppr, H
+
+
+# Run simulation ----
+outlist = SimulatePermanence(type = "theo", mean_drawdown = 2) #1.1, 2, 5
+outlist = SimulatePermanence(type = "real", sites = "CIF_Alto_Mayo") #Gola_country, CIF_Alto_Mayo, VCS_1396, VCS_934
+outlist = SimulatePermanence(type = "theo", aggregate_type = "B") #A, B, C
+outlist = SimulatePermanence(type = "real", aggregate_type = "four") #three, four
+
+
+# Save output objects to RDS objects ----
+
+#unpack output objects
+sim_p_loss = outlist$sim_p_loss
+sim_c_loss = outlist$sim_c_loss
+sim_additionality = outlist$sim_additionality
+sim_credit = outlist$sim_credit
+sim_benefit = outlist$sim_benefit
+sim_aomega = outlist$sim_aomega
+sim_release = outlist$sim_release
+sim_damage = outlist$sim_damage
+sim_ep = outlist$sim_ep
+sim_pact = outlist$sim_pact
+sim_reversal = outlist$sim_reversal
+sim_buffer = outlist$sim_buffer
+sim_schedule = outlist$sim_schedule
+common_var = outlist$common_var
+
+#summarise time series results
+summ_additionality = SummariseSim(sim_additionality)
+summ_credit = SummariseSim(sim_credit)
+#summ_pact = SummariseSim(sim_pact)
+summ_release = SummariseSim(sim_release[1:common_var$H, ])
+#summ_buffer = SummariseSim(sim_buffer)
+summ_aomega = SummariseSim(sim_aomega)
+
+summ_ep = sim_ep %>%
+  replace(., . == 0, NA) %>%
+  SummariseSim() %>%
+  replace(., . == Inf| . == -Inf, NA)
+
+#per-year reversal risk (proportion of repetitions without positive credits)
+summ_risk = data.frame(year = 1:common_var$H, risk = apply(sim_reversal, 1, sum) / ncol(sim_reversal))
+summ_risk$risk[1:common_var$warmup] = NA
+
+#gather output objects and save
+summ_simulation = list(additionality = summ_additionality,
+                       credit = summ_credit,
+                       release = summ_release,
+                       aomega = summ_aomega,
+                       ep = summ_ep,
+                       risk = summ_risk)
+summ_complete = c(common_var, summ_simulation)
+
+type_label = common_var$type_label
+dir.create(paste0(out_path, type_label, "/"))
+saveRDS(summ_complete, file = paste0(out_path, type_label, "/", type_label, "_output.rds"))
+
+
+
 
 inpar = setInput(type = "theo", mean_drawdown = 1.1) #1.1, 2, 5
-
 inpar = setInput(type = "real", sites = "Gola_country") #Gola_country, CIF_Alto_Mayo, VCS_1396, VCS_934
-
 inpar = setInput(type = "theo", aggregate_type = "A") #A, B, C
-
 inpar = setInput(type = "real", aggregate_type = "three") #three, four
 
-
 source("carbon_loss_simulations_core.R")
+
+
+
 
 # Plot results ----
 yr_label = c(1, seq(H / 10, H, by = H / 10))

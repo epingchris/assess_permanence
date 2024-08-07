@@ -1,4 +1,4 @@
-# 1. Unpactk input variables ----
+# 1. Unpack input variables ----
 type = inpar$type
 type_label = inpar$type_label
 t0 = inpar$t0
@@ -32,7 +32,7 @@ sim_release = matrix(0, H_max_scc, n_rep)
 sim_damage = matrix(0, H, n_rep)
 sim_ep = matrix(0, H, n_rep)
 sim_pact = matrix(0, H, n_rep)
-sim_failure = matrix(F, H, n_rep)
+sim_reversal = matrix(F, H, n_rep)
 sim_buffer = matrix(0, H, n_rep)
 sim_schedule = vector("list", n_rep)
 
@@ -131,7 +131,7 @@ for(j in 1:n_rep){
         #cat("Credit =", sim_credit[i, j], ", Benefit =", sim_benefit[i, j], ", Damage =", sim_damage[i, j], ", eP =", sim_ep[i, j], "\n")
       } else if(sim_credit[i, j] <= 0){
         sim_ep[i, j] = 0
-        sim_failure[i, j] = T
+        sim_reversal[i, j] = T
       }
       sim_pact[i, j]  = sim_credit[i, j] * sim_ep[i, j]
     }
@@ -159,30 +159,24 @@ summ_ep = sim_ep %>%
   SummariseSim() %>%
   replace(., . == Inf| . == -Inf, NA)
 
-#per-year failure risk (proportion of repetitions without positive credits)
-summ_risk = data.frame(year = 1:H,
-                       risk = apply(sim_failure, 1, sum) / ncol(sim_failure))
+#per-year reversal risk (proportion of repetitions without positive credits)
+summ_risk = data.frame(year = 1:H, risk = apply(sim_reversal, 1, sum) / ncol(sim_reversal))
 summ_risk$risk[1:warmup] = NA
 
-
 #4. Set file prefixes and save results ----
-subfolder = paste0(type_label, "/")
-summ_common = list(t0 = t0,
-                   t_max = t_max,
-                   additionality = summ_additionality,
-                   credit = summ_credit,
-                   release = summ_release,
-                   aomega = summ_aomega,
-                   ep = summ_ep,
-                   risk = summ_risk)
+summ_simulation = list(additionality = summ_additionality,
+                       credit = summ_credit,
+                       release = summ_release,
+                       aomega = summ_aomega,
+                       ep = summ_ep,
+                       risk = summ_risk)
 
-if(type == "theo" & hypo_sensit == "none") {
-  summ = list(mean_drawdown = mean_drawdown)
-} else if(type == "real"){
-  summ = list(sites = sites,
-              c_loss_p_list = c_loss_p_list,
-              c_loss_c_list = c_loss_c_list)
-} else if(hypo_sensit != "none") {
+summ_complete = c(common_var, summ_simulation)
+dir.create(paste0(out_path, type_label, "/"))
+saveRDS(summ_complete, file = paste0(out_path, type_label, "/", type_label, "_output.rds"))
+
+
+if(hypo_sensit != "none") {
     ppr_text = gsub("\\.", "_", as.character(postproject_ratio))
     drawdown_text = gsub("\\.", "_", as.character(mean_drawdown))
     subfolder = paste0("sensitivity_", hypo_sensit, "/")
@@ -201,9 +195,4 @@ if(type == "theo" & hypo_sensit == "none") {
                             "ppr" = list(ppr = postproject_ratio),
                             "H" = list(H = H),
                             "none" = NULL))
-  }
-
-summ_complete = c(summ, summ_common)
-
-dir.create(paste0(out_path, subfolder))
-saveRDS(summ_complete, file = paste0(out_path, subfolder, type_label, "_output.rds"))
+}
