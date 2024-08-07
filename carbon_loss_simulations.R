@@ -23,12 +23,10 @@ year_max_scc = max(scc_extended$year) #release horizon
 # Core code for the simulation ----
 
 #set input parameters
-type = "theo" #theo, real
+#type = "theo" #theo, real
 hypo_sensit = "none" #none, dd_rate, warmup, ppr, H
 out_path = "C:/Users/epr26/OneDrive - University of Cambridge/assess_permanence_out/"
 file_type = "png" #png, pdf
-view_snapshot = F #view a snapshot in carbon_loss_simulations_core.R
-
 
 inpar = setInput(type = "theo", mean_drawdown = 1.1) #1.1, 2, 5
 

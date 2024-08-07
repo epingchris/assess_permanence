@@ -81,17 +81,17 @@ setInput = function(type, mean_drawdown = NULL, sites = NULL, aggregate_type = N
     
     for(i in seq_along(sites)){
       site_i = sites[i]
-      agb_series_df = read.csv(paste0(file_path, "project_input_data/", site_i, ".csv"), header = T)
+      agb_series_df = read.csv(paste0("project_input_data/", site_i, ".csv"), header = T)
       t0_vec[i] = subset(agb_series_df, started)$year[1]
       tmax_vec[i] = max(agb_series_df$year)
       flux_series_list[[i]] = makeFlux(agb_series_df)
 
       c_loss_p_list[[i]] = flux_series_list[[i]] %>%
         subset(var == "treatment_proj" & year >= t0_vec[i]) %>%
-        mutate(val = val * (-1), var = NULL, series = NULL, site = site_i)
+        mutate(val = val * (-1), var = NULL, n_sim = NULL, site = site_i)
       c_loss_c_list[[i]] = flux_series_list[[i]] %>%
         subset(var == "control_proj" & year >= t0_vec[i]) %>%
-        mutate(val = val * (-1), var = NULL, series = NULL, site = site_i)
+        mutate(val = val * (-1), var = NULL, n_sim = NULL, site = site_i)
     }
     
     t0 = min(t0_vec)

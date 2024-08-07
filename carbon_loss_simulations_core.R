@@ -36,7 +36,12 @@ sim_failure = matrix(F, H, n_rep)
 sim_buffer = matrix(0, H, n_rep)
 sim_schedule = vector("list", n_rep)
 
+
+verbose = T
+a = Sys.time()
 for(j in 1:n_rep){
+  a1 = Sys.time()
+  cat("Repetition:", j, "\n")
   schedule = matrix(0, H, H_max_scc) #release schedule
   buffer_pool = 0
   #cat("Buffer at start: ", buffer_pool, "\n")
@@ -51,9 +56,6 @@ for(j in 1:n_rep){
       sim_p_loss[i, j] = sum(sapply(lambdaP, function(x) rexp(1, x)))
       sim_c_loss[i, j] = sum(sapply(lambdaC, function(x) rexp(1, x)))
     } else if(type == "real") {
-      sim_p_loss[i, j] = ifelse(isExPost, obs_p_loss[i], SampGMM(c_loss_p_fit, n = 1))
-      sim_c_loss[i, j] = ifelse(isExPost, obs_c_loss[i], SampGMM(c_loss_c_fit, n = 1))
-    } else if(type == "real_aggr") {
       sim_p_loss[i, j] = ifelse(isExPost, obs_p_loss[i], sum(sapply(c_loss_p_fit_list, function(x) SampGMM(x, n = 1))))
       sim_c_loss[i, j] = ifelse(isExPost, obs_c_loss[i], sum(sapply(c_loss_c_fit_list, function(x) SampGMM(x, n = 1))))
     }
@@ -64,10 +66,6 @@ for(j in 1:n_rep){
                                   x = lambdaC, y = lambdaP) %>%
         apply(1, sum)
     } else if(type == "real") {
-      c_loss_p_fit = FitGMM(subset(c_loss_p, year <= year_i)$val)
-      c_loss_c_fit = FitGMM(subset(c_loss_c, year <= year_i)$val)
-      samp_additionality = SampGMM(c_loss_c_fit, n = 1000) - SampGMM(c_loss_p_fit, n = 1000)
-    } else if(type == "real_aggr") {
       c_loss_p_fit_list = lapply(c_loss_p_list, function(x) {
         FitGMM(subset(x, year <= year_i & year >= t0)$val)})
       c_loss_p_samp_list = lapply(c_loss_p_fit_list, function(x) SampGMM(x, n = 1000))
@@ -138,22 +136,15 @@ for(j in 1:n_rep){
       sim_pact[i, j]  = sim_credit[i, j] * sim_ep[i, j]
     }
     sim_buffer[i, j] = buffer_pool
+    if(verbose) cat("Step", i, ":", "additionality", sim_additionality[i, j], "| anticipated release", sim_release[i, j], "| credit", sim_credit[i, j], "| EP", sim_ep[i, j], "\n")
   }
   sim_schedule[[j]] = schedule
+  b1 = Sys.time()
+  if(verbose) cat("Repetition", j, "runtime:", b1 - a1, "\n")
 }
+b = Sys.time()
+if(verbose) cat("Total runtime:", b - a, "\n")
 
-#view evolution of a particular iteration
-if(view_snapshot) {
-  j = 1
-  snapshot = data.frame(additionality = sim_additionality[1:50, j],
-                        aomega = sim_aomega[1:50, j],
-                        release = sim_release[1:50, j],
-                        credit = sim_credit[1:50, j],
-                        PACT = sim_pact[1:50, j],
-                        rsched = apply(sim_schedule[[j]], 1, sum),
-                        buffer = sim_buffer[1:50, j])
-  View(snapshot)
-}
 
 # 3. Summarise results (time series) ----
 summ_additionality = SummariseSim(sim_additionality)

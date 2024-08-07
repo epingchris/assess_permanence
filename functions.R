@@ -1,7 +1,7 @@
 makeFlux = function(in_df){
   n_sim = unique(in_df$n_sim)
-  flux_series = lapply(seq_along(n_sim), function(i) {
-    stock_series = aggregate(class_co2e ~ treatment + year, subset(in_df, n_sim == n_sim[i] & class %in% c(1, 2, 3, 4)), FUN = sum)
+  flux_series = lapply(n_sim, function(x) {
+    stock_series = aggregate(class_co2e ~ treatment + year, subset(in_df, n_sim == x & class %in% c(1, 2, 3, 4)), FUN = sum)
     stock_wide = as.data.frame(pivot_wider(stock_series, id_cols = year, names_from = "treatment", values_from = "class_co2e"))
     
     flux_series = data.frame(year = stock_wide$year[-1],
@@ -9,7 +9,7 @@ makeFlux = function(in_df){
                              control_proj = diff(subset(stock_series, treatment == "control")$class_co2e)) %>%
       mutate(additionality = treatment_proj - control_proj) %>%
       pivot_longer(2:4, names_to = "var", values_to = "val") %>%
-      mutate(series = paste0("V", i))
+      mutate(n_sim = x)
   }) %>%
     do.call(rbind, .)
   return(flux_series)
