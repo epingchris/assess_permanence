@@ -54,3 +54,8 @@ The file must contain the following columns:
 3. val: numeric, total carbon flux from the last year to this year (Mg CO2e)
 4. n_sim: numeric, index of repetition
 5. started: boolean, whether the year is larger than project start (t0)
+
+## Other scripts
+
+extend_scc.R and create_input_csv.R are maintenance scripts used to prepare input data.
+ViewSnapshot.r is a function that selects one particular repetition and view its time series, but is not currently used for anything.

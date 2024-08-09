@@ -7,7 +7,11 @@
 *.rds
 .Ruserdata
 *.pdf
+*.zip
+*.csv
 *.png
 *.Rproj
 *.ipynb
 *WLT_VNCC_KNT*.*
+!scc_extended.csv
+!/project_input_data
