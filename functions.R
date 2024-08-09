@@ -1,20 +1,3 @@
-makeFlux = function(in_df){
-  n_sim = unique(in_df$n_sim)
-  flux_series = lapply(n_sim, function(x) {
-    stock_series = aggregate(class_co2e ~ treatment + year, subset(in_df, n_sim == x & class %in% c(1, 2, 3, 4)), FUN = sum)
-    stock_wide = as.data.frame(pivot_wider(stock_series, id_cols = year, names_from = "treatment", values_from = "class_co2e"))
-    
-    flux_series = data.frame(year = stock_wide$year[-1],
-                             treatment_proj = diff(subset(stock_series, treatment == "treatment")$class_co2e),
-                             control_proj = diff(subset(stock_series, treatment == "control")$class_co2e)) %>%
-      mutate(additionality = treatment_proj - control_proj) %>%
-      pivot_longer(2:4, names_to = "var", values_to = "val") %>%
-      mutate(n_sim = x)
-  }) %>%
-    do.call(rbind, .)
-  return(flux_series)
-}
-
 #wrapper function to fit using GMM and generate random samples from GMM-fitted distributions
 FitGMM = function(x) {
   if(length(x) == 0) {
@@ -60,3 +43,20 @@ SummariseSim = function(mat, n_rep = 100){
   return(df)
 }
 
+#function to summarise across simulations with a series of different input variable values, used for sensitivity tests
+SummariseAcrossTests = function(input, var, n_rep) {
+  n = nrow(input)
+  output = input %>%
+    t() %>%
+    as.data.frame() %>%
+    rowwise() %>%
+    mutate(mean = mean(c_across(1:n_rep)),
+           sd = sd(c_across(1:n_rep))) %>%
+    ungroup() %>%
+    mutate(var = var,
+           ci_margin = qt(0.975, df = n_rep - 1) * sd / sqrt(n_rep),
+           ci_low = mean - ci_margin,
+           ci_high = mean + ci_margin) %>%
+    select(-all_of(c(1:n)))
+  return(output)
+}

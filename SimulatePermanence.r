@@ -1,5 +1,5 @@
 SimulatePermanence = function(type, mean_drawdown = NULL, sites = NULL, aggregate_type = NULL, verbose = F, runtime = T,
-                              n_rep = 100, omega = 0.05, H = 50, D = 0.03, warmup = 5, postproject_ratio = 2, scc_df = scc) {
+                              n_rep = 100, omega = 0.05, H = 50, D = 0.03, warmup = 5, ppr_ratio = 2, scc_df = scc) {
     # A. Get input variables ----
     if(type == "theo") { #theoretical projects (single or aggregated)
         #control input conditions
@@ -7,7 +7,7 @@ SimulatePermanence = function(type, mean_drawdown = NULL, sites = NULL, aggregat
             if(is.null(mean_drawdown)) {
                 stop("An aggregated project type or a mean drawdown value(s) is needed.")
             } else {
-                cat("Drawdown value(s) used:", mean_drawdown)
+                cat("Drawdown value(s) used:", mean_drawdown, "\n")
                 type_label = paste0(type, "_", paste(gsub("\\.", "_", mean_drawdown), collapse = "_"))
             }
         } else {
@@ -18,13 +18,13 @@ SimulatePermanence = function(type, mean_drawdown = NULL, sites = NULL, aggregat
                                         "A" = c(1.1, 1.1, 1.1, 5),
                                         "B" = c(1.1, 1.1, 5, 5),
                                         "C" = c(1.1, 5, 5, 5))
-                cat("Aggregate project type", aggregate_type, "is used:", mean_drawdown)
+                cat("Aggregate project type", aggregate_type, "is used:", mean_drawdown, "\n")
                 type_label = paste0(type, "_aggr_", aggregate_type)
             }
         }
 
-        t0 = 2021 #for theoretical projects, simulations are assumed to start at 2021
-        t_max = t0 - 1 #for theoretical projects, none of the years will be ex post
+        t0 = 2022 #for theoretical projects, simulations are assumed to start at 2022
+        t_max = 2021 #for theoretical projects, none of the years will be ex post
 
         #lambda parameter of the exponential distribution as the inverse of mean drawdown rate
         lambdaP = rep(1, length(mean_drawdown))
@@ -37,7 +37,7 @@ SimulatePermanence = function(type, mean_drawdown = NULL, sites = NULL, aggregat
         obs_c_loss = apply(as.data.frame(c_loss_c_samp_list), 1, sum)
 
         #post-project release rate: a ratio of the counterfactual release rate during project (default to double)
-        postproject_release = sum(postproject_ratio / lambdaC)
+        ppr = sum(ppr_ratio / lambdaC)
 
         #analytical solution for a_omega (if length of lambdaC is one)
         if(length(mean_drawdown) == 1) {
@@ -53,7 +53,7 @@ SimulatePermanence = function(type, mean_drawdown = NULL, sites = NULL, aggregat
             if(is.null(sites)) {
                 stop("An aggregated project type or a site name(s) is needed.")
             } else {
-                cat("Site(s) used:", sites)
+                cat("Site(s) used:", sites, "\n")
                 sites_simplified = sapply(sites, function(x) {
                     switch(x,
                            "Gola_country" = "Gola", #1201
@@ -70,32 +70,33 @@ SimulatePermanence = function(type, mean_drawdown = NULL, sites = NULL, aggregat
             sites = switch(aggregate_type,
                            "four" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396", "VCS_934"),
                            "three" = c("Gola_country", "CIF_Alto_Mayo", "VCS_1396"))
-            cat("Aggregated project type", aggregate_type, "is used:", sites)
+            cat("Aggregated project type", aggregate_type, "is used:", sites, "\n")
             type_label = paste0(type, "_aggr_", aggregate_type)
         }
 
         t0_vec = rep(NA, length(sites))
-        tmax_vec = rep(NA, length(sites))
+        t_max_vec = rep(NA, length(sites))
         c_loss_p_list = vector("list", length(sites))
         c_loss_c_list = vector("list", length(sites))
 
         for(i in seq_along(sites)){
             site_i = sites[i]
-            agb_series_df = read.csv(paste0("project_input_data/", site_i, ".csv"), header = T)
-            t0_vec[i] = subset(agb_series_df, started)$year[1]
-            tmax_vec[i] = max(agb_series_df$year)
-            flux_series = makeFlux(agb_series_df)
+            c_flux_df = read.csv(paste0("project_input_data/", site_i, ".csv"), header = T)
+            t0_vec[i] = subset(c_flux_df, started)$year[1]
+            t_max_vec[i] = max(c_flux_df$year)
 
-            c_loss_p_list[[i]] = flux_series %>%
-                subset(var == "treatment_proj" & year >= t0_vec[i]) %>%
+            c_loss_p_list[[i]] = c_flux_df %>%
+                subset(var == "project" & year >= t0_vec[i]) %>%
                 mutate(val = val * (-1), var = NULL, n_sim = NULL, site = site_i)
-            c_loss_c_list[[i]] = flux_series %>%
-                subset(var == "control_proj" & year >= t0_vec[i]) %>%
+            c_loss_c_list[[i]] = c_flux_df %>%
+                subset(var == "counterfactual" & year >= t0_vec[i]) %>%
                 mutate(val = val * (-1), var = NULL, n_sim = NULL, site = site_i)
         }
 
         t0 = min(t0_vec)
-        t_max = 2021
+        t_max = min(t_max_vec)
+        #min is used to make sure in all years considered to be ex post, there will be available observed values in all projects
+        #this may potentially cause some observed values to be discarded, but for now all aggregated projects have same t_max so it isn't an issue
 
         #GMM-fitted carbon loss distribution, used to generate (similar to lambda parameters for theoretical projects)
         c_loss_p_fit_list = lapply(c_loss_p_list, function(x) FitGMM(x$val))
@@ -118,10 +119,10 @@ SimulatePermanence = function(type, mean_drawdown = NULL, sites = NULL, aggregat
             pull(val)
 
         #post-project release rate: a ratio of the counterfactual release rate during project (default to double)
-        postproject_release = c_loss_c_fit_list %>%
+        ppr = c_loss_c_fit_list %>%
             sapply(function(x) SampGMM(x, n = 1000)) %>%
             apply(1, sum) %>%
-            mean() * postproject_ratio
+            mean() * ppr_ratio
 
         #no analytical solution for a_omega
         aomega = NULL
@@ -224,7 +225,7 @@ SimulatePermanence = function(type, mean_drawdown = NULL, sites = NULL, aggregat
                     while(to_be_released > 0 & k < H_max_scc){
                         k = k + 1
                         if(k > H) {
-                            max_release = postproject_release #post-project release rate
+                            max_release = ppr #post-project release rate
                         } else {
                             max_release = ifelse(aomega > 0, 0, -aomega) #if a-omega is positive, maximum release is zero
                         }
@@ -257,14 +258,17 @@ SimulatePermanence = function(type, mean_drawdown = NULL, sites = NULL, aggregat
     b = Sys.time()
     if(runtime) cat("Total runtime:", b - a, "\n")
 
+    sim_ep = sim_ep %>%
+        replace(., . == Inf| . == -Inf| . == 0, NA)
+
     #gather common output variables
-    if(type == "theo" & hypo_sensit == "none") {
-        common_var = list(type_label = type_label, t0 = t0, t_max = t_max,
-                          n_rep = n_rep, omega = omega, H = H, D = D, warmup = warmup, postproject_ratio = postproject_ratio,
+    if(type == "theo") {
+        common_var = list(type = type, type_label = type_label, t0 = t0, t_max = t_max,
+                          n_rep = n_rep, omega = omega, H = H, D = D, warmup = warmup, ppr_ratio = ppr_ratio,
                           mean_drawdown = mean_drawdown)
     } else if(type == "real"){
-        common_var = list(type_label = type_label, t0 = t0, t_max = t_max,
-                          n_rep = n_rep, omega = omega, H = H, D = D, warmup = warmup, postproject_ratio = postproject_ratio,
+        common_var = list(type = type, type_label = type_label, t0 = t0, t_max = t_max,
+                          n_rep = n_rep, omega = omega, H = H, D = D, warmup = warmup, ppr_ratio = ppr_ratio,
                           sites = sites, c_loss_p_list = c_loss_p_list, c_loss_c_list = c_loss_c_list)
     }
 
