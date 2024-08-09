@@ -14,4 +14,4 @@
 *.ipynb
 *WLT_VNCC_KNT*.*
 !scc_extended.csv
-!/project_input_data
+!project_input_data/
