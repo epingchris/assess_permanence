@@ -15,3 +15,7 @@
 *WLT_VNCC_KNT*.*
 !scc_extended.csv
 !project_input_data/
+!project_input_data/CIF_Alto_Mayo.csv
+!project_input_data/Gola_country.csv
+!project_input_data/VCS_934.csv
+!project_input_data/VCS_1396.csv
